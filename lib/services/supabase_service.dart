@@ -112,6 +112,110 @@ class SupabaseService {
     }
   }
 
+  // Get results for a specific student by enrollment with exam details
+  static Future<List<Map<String, dynamic>>> getStudentResults(String enrollmentNumber) async {
+    try {
+      debugPrint('STUDENT_RESULTS: Fetching for $enrollmentNumber');
+      final List<dynamic> resultsRaw = await _client
+          .from('results')
+          .select()
+          .eq('enrollment_number', enrollmentNumber)
+          .order('created_at', ascending: false);
+      
+      final List<Map<String, dynamic>> enrichedResults = [];
+      
+      for (var res in resultsRaw) {
+        final Map<String, dynamic> result = Map<String, dynamic>.from(res);
+        try {
+          // Fetch exam details for this result
+          final examResponse = await _client
+              .from('exams')
+              .select('title, result_mode, results_published')
+              .eq('code', result['exam_code'])
+              .single();
+          
+          result['exam_title'] = examResponse['title'];
+          result['result_mode'] = examResponse['result_mode'];
+          result['results_published'] = examResponse['results_published'];
+        } catch (e) {
+          debugPrint('STUDENT_RESULTS: Could not fetch exam details for ${result['exam_code']}');
+          result['exam_title'] = 'Unknown Exam';
+        }
+        enrichedResults.add(result);
+      }
+      
+      print('STUDENT_RESULTS: Enriched ${enrichedResults.length} results with exam data');
+      return enrichedResults;
+    } catch (e) {
+      debugPrint('STUDENT_RESULTS: ERROR - $e');
+      throw Exception('Failed to fetch student results: $e');
+    }
+  }
+
+  // Check if student exists or create new one
+  static Future<Map<String, dynamic>> checkOrCreateStudent(String enrollmentNumber) async {
+    try {
+      // 1. Check if exists
+      final response = await _client
+          .from('students')
+          .select()
+          .eq('enrollment_number', enrollmentNumber)
+          .single();
+      
+      print('STUDENT: Existing student found: $enrollmentNumber');
+      return {'isNew': false, 'student': response};
+    } catch (e) {
+      // 2. Student not found, create new
+      try {
+        print('STUDENT: Student not found, creating new: $enrollmentNumber');
+        final newStudent = await _client
+            .from('students')
+            .insert({'enrollment_number': enrollmentNumber})
+            .select()
+            .single();
+        
+        print('STUDENT: New student created: $enrollmentNumber');
+        return {'isNew': true, 'student': newStudent};
+      } catch (insertError) {
+        print('STUDENT: Create ERROR - $insertError');
+        throw Exception('Failed to create student: $insertError');
+      }
+    }
+  }
+
+  // Get student info by enrollment
+  static Future<Map<String, dynamic>?> getStudentByEnrollment(String enrollmentNumber) async {
+    try {
+      final response = await _client
+          .from('students')
+          .select()
+          .eq('enrollment_number', enrollmentNumber)
+          .single();
+      
+      print('STUDENT: Fetched student: $enrollmentNumber');
+      return response;
+    } catch (e) {
+      print('STUDENT: Fetch ERROR - $e');
+      return null;
+    }
+  }
+
+  // Get all active exams
+  static Future<List<Map<String, dynamic>>> getAllActiveExams() async {
+    try {
+      debugPrint('ACTIVE_EXAMS: Fetching all exams');
+      final exams = await _client
+          .from('exams')
+          .select('id, code, title, result_mode, results_published, created_at')
+          .order('created_at', ascending: false);
+      
+      return List<Map<String, dynamic>>.from(exams);
+    } catch (e) {
+      debugPrint('ACTIVE_EXAMS: ERROR - $e');
+      throw Exception('Failed to fetch active exams: $e');
+    }
+  }
+
   // Check if results are published for an exam
   static Future<bool> checkResultsPublished(String examCode) async {
     try {
@@ -153,16 +257,34 @@ class SupabaseService {
     }
   }
 
+  // Get exam details by code
+  static Future<Map<String, dynamic>> getExamDetails(String code) async {
+    try {
+      debugPrint('EXAM_DETAILS: Looking for exam code: $code');
+      final response = await _client
+          .from('exams')
+          .select()
+          .eq('code', code)
+          .single();
+      
+      print('EXAM_DETAILS: Fetched exam: ${response['title']}');
+      return response;
+    } catch (e) {
+      debugPrint('EXAM_DETAILS: ERROR - $e');
+      throw Exception('Exam not found. Check the code and try again.');
+    }
+  }
+
   // Save result to Supabase
   static Future<void> saveResult({
     required String examCode,
-    required String studentName,
+    required String enrollmentNumber,
     required int score,
     required int total,
     required List<int?> answers,
     required bool instantMode,
   }) async {
-    debugPrint('RESULT: Saving for student: $studentName');
+    debugPrint('RESULT: Saving for enrollment: $enrollmentNumber');
     debugPrint('RESULT: Exam code: $examCode');
     debugPrint('RESULT: Score: $score / $total');
     debugPrint('RESULT: Answers: $answers');
@@ -170,7 +292,7 @@ class SupabaseService {
     try {
       await _client.from('results').insert({
         'exam_code': examCode,
-        'student_name': studentName,
+        'enrollment_number': enrollmentNumber,
         'score': score,
         'total': total,
         'answers': answers,

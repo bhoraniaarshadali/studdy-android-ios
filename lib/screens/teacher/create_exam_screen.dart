@@ -8,6 +8,7 @@ import '../../models/question_model.dart';
 import '../../services/kie_ai_service.dart';
 import '../../services/supabase_service.dart';
 import 'review_questions_screen.dart';
+import 'exam_published_screen.dart';
 
 class CreateExamScreen extends StatefulWidget {
   const CreateExamScreen({super.key});
@@ -29,7 +30,6 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
   Uint8List? _pdfBytes;
   String _statusText = '';
   bool _isPublishing = false;
-  String? _publishedCode;
   String _resultMode = 'instant'; // 'instant' or 'manual'
 
   Future<void> _pickPDF() async {
@@ -207,10 +207,18 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
       );
       debugPrint('PUBLISH_BTN: Got code: $code');
       debugPrint('PUBLISH: Result mode: $_resultMode');
-      debugPrint('PUBLISH_BTN: UI updated with code');
-      setState(() {
-        _publishedCode = code;
-      });
+      
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ExamPublishedScreen(
+              examCode: code,
+              resultMode: _resultMode,
+            ),
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('PUBLISH_BTN: ERROR - $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -356,81 +364,23 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
   }
 
   Widget _buildPublishSection() {
-    if (_publishedCode == null) {
-      return SizedBox(
-        height: 54,
-        child: ElevatedButton.icon(
-          onPressed: _isPublishing ? null : _publishExam,
-          icon: const Icon(Icons.cloud_upload),
-          label: _isPublishing
-              ? const CircularProgressIndicator(color: Colors.white)
-              : const Text(
-                  'Publish Exam',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+    return SizedBox(
+      height: 54,
+      child: ElevatedButton.icon(
+        onPressed: _isPublishing ? null : _publishExam,
+        icon: const Icon(Icons.cloud_upload),
+        label: _isPublishing
+            ? const CircularProgressIndicator(color: Colors.white)
+            : const Text(
+                'Publish Exam',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.green,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
           ),
-        ),
-      );
-    }
-
-    return Card(
-      color: Colors.green.shade50,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.green.shade200),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          children: [
-            const Icon(Icons.check_circle, color: Colors.green, size: 48),
-            const SizedBox(height: 16),
-            const Text(
-              'Exam Published!',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
-            ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.green.shade100),
-              ),
-              child: Text(
-                _publishedCode!,
-                style: const TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 4,
-                  color: Colors.black87,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Share this code with students',
-              style: TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            TextButton.icon(
-              onPressed: () {
-                Clipboard.setData(ClipboardData(text: _publishedCode!));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Code copied to clipboard')),
-                );
-                debugPrint('PUBLISH: Code copied to clipboard');
-              },
-              icon: const Icon(Icons.copy),
-              label: const Text('Copy Code'),
-            ),
-          ],
         ),
       ),
     );

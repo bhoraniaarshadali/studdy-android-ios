@@ -6,13 +6,13 @@ import '../auth/login_screen.dart';
 class StudentExamScreen extends StatefulWidget {
   final List<QuestionModel> questions;
   final String examCode;
-  final String studentName;
+  final String enrollmentNumber;
 
   const StudentExamScreen({
     super.key,
     required this.questions,
     required this.examCode,
-    required this.studentName,
+    required this.enrollmentNumber,
   });
 
   @override
@@ -32,7 +32,7 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
   void initState() {
     super.initState();
     _selectedAnswers = List.filled(widget.questions.length, null);
-    debugPrint('EXAM: Started for ${widget.studentName}, questions: ${widget.questions.length}');
+    debugPrint('EXAM: Started for ${widget.enrollmentNumber}, questions: ${widget.questions.length}');
     debugPrint('EXAM: Question ${_currentQuestion + 1} viewed');
   }
 
@@ -54,7 +54,7 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
     try {
       await SupabaseService.saveResult(
         examCode: widget.examCode,
-        studentName: widget.studentName,
+        enrollmentNumber: widget.enrollmentNumber,
         score: score,
         total: widget.questions.length,
         answers: _selectedAnswers,
@@ -175,7 +175,7 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Hi, ${widget.studentName}',
+            'Hi, ${widget.enrollmentNumber}',
             style: const TextStyle(fontSize: 14, color: Colors.blueAccent, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),

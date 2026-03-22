@@ -1,44 +1,43 @@
 import 'package:flutter/material.dart';
 import '../teacher/dashboard_screen.dart';
-import '../student/student_join_screen.dart';
+import '../student/student_entry_screen.dart';
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          padding: const EdgeInsets.all(24.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              const Icon(Icons.auto_stories, size: 80, color: Colors.blueAccent),
+              const SizedBox(height: 16),
               const Text(
                 'Studdy',
-                style: TextStyle(
-                  fontSize: 48,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
-                ),
+                style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 8),
               const Text(
-                'Smart exam platform',
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Colors.grey,
-                ),
+                'Smart AI Exam Platform',
+                style: TextStyle(fontSize: 16, color: Colors.grey),
               ),
               const SizedBox(height: 60),
               Row(
                 children: [
                   Expanded(
                     child: _buildRoleCard(
-                      context,
                       title: 'Teacher',
-                      icon: Icons.school,
+                      subtitle: 'Create & manage exams',
+                      icon: Icons.school_rounded,
                       onTap: () {
                         debugPrint('Login: Teacher selected');
                         Navigator.push(
@@ -53,15 +52,15 @@ class LoginScreen extends StatelessWidget {
                   const SizedBox(width: 16),
                   Expanded(
                     child: _buildRoleCard(
-                      context,
                       title: 'Student',
-                      icon: Icons.person,
+                      subtitle: 'Join & take exams',
+                      icon: Icons.person_rounded,
                       onTap: () {
-                        debugPrint('Login: Student selected');
+                        debugPrint('Login: Student entry screen opened');
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => const StudentJoinScreen(),
+                            builder: (context) => const StudentEntryScreen(),
                           ),
                         );
                       },
@@ -76,9 +75,9 @@ class LoginScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildRoleCard(
-    BuildContext context, {
+  Widget _buildRoleCard({
     required String title,
+    required String subtitle,
     required IconData icon,
     required VoidCallback onTap,
   }) {
@@ -86,34 +85,26 @@ class LoginScreen extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        height: 160,
+        height: 180,
         decoration: BoxDecoration(
-          color: Colors.white,
+          border: Border.all(color: Colors.grey.shade200),
           borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-          border: Border.all(color: Colors.grey.shade100),
+          color: Colors.white,
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              size: 48,
-              color: Colors.blueAccent,
-            ),
+            Icon(icon, size: 48, color: Colors.blueAccent),
             const SizedBox(height: 12),
             Text(
               title,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
             ),
           ],
         ),

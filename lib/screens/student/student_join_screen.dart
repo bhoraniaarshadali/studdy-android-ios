@@ -3,7 +3,14 @@ import '../../services/supabase_service.dart';
 import 'exam_screen.dart';
 
 class StudentJoinScreen extends StatefulWidget {
-  const StudentJoinScreen({super.key});
+  final String? prefilledCode;
+  final String? enrollmentNumber;
+
+  const StudentJoinScreen({
+    super.key,
+    this.prefilledCode,
+    this.enrollmentNumber,
+  });
 
   @override
   State<StudentJoinScreen> createState() => _StudentJoinScreenState();
@@ -11,23 +18,34 @@ class StudentJoinScreen extends StatefulWidget {
 
 class _StudentJoinScreenState extends State<StudentJoinScreen> {
   final TextEditingController _codeController = TextEditingController();
-  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _enrollmentController = TextEditingController();
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.prefilledCode != null) {
+      _codeController.text = widget.prefilledCode!;
+    }
+    if (widget.enrollmentNumber != null) {
+      _enrollmentController.text = widget.enrollmentNumber!;
+    }
+  }
 
   @override
   void dispose() {
     _codeController.dispose();
-    _nameController.dispose();
+    _enrollmentController.dispose();
     super.dispose();
   }
 
   Future<void> _joinExam() async {
-    final name = _nameController.text.trim();
+    final enrollment = _enrollmentController.text.trim();
     final code = _codeController.text.trim().toUpperCase();
 
-    if (name.isEmpty) {
+    if (enrollment.isEmpty || enrollment.length < 5) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter your name')),
+        const SnackBar(content: Text('Please enter valid enrollment number')),
       );
       return;
     }
@@ -42,9 +60,8 @@ class _StudentJoinScreenState extends State<StudentJoinScreen> {
     setState(() => _isLoading = true);
 
     try {
-      debugPrint('JOIN: Student: $name, Code: $code');
+      debugPrint('JOIN: Enrollment: $enrollment, Code: $code');
       final questions = await SupabaseService.getExamByCode(code);
-      debugPrint('JOIN: Exam found with ${questions.length} questions');
       
       if (mounted) {
         Navigator.push(
@@ -53,7 +70,7 @@ class _StudentJoinScreenState extends State<StudentJoinScreen> {
             builder: (context) => StudentExamScreen(
               questions: questions,
               examCode: code,
-              studentName: name,
+              enrollmentNumber: enrollment,
             ),
           ),
         );
@@ -116,16 +133,16 @@ class _StudentJoinScreenState extends State<StudentJoinScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const Text(
-                        'Your Name',
+                        'Enrollment Number',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
                       TextField(
-                        controller: _nameController,
-                        textCapitalization: TextCapitalization.words,
+                        controller: _enrollmentController,
+                        keyboardType: TextInputType.number,
                         decoration: InputDecoration(
-                          hintText: 'Enter your full name',
-                          prefixIcon: const Icon(Icons.person_outline),
+                          hintText: 'e.g. 2405112070013',
+                          prefixIcon: const Icon(Icons.badge_outlined),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),

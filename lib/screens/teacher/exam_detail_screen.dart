@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/supabase_service.dart';
+import '../../models/question_model.dart';
+import 'student_response_screen.dart';
 
 class ExamDetailScreen extends StatefulWidget {
   final Map<String, dynamic> exam;
@@ -12,6 +15,7 @@ class ExamDetailScreen extends StatefulWidget {
 
 class _ExamDetailScreenState extends State<ExamDetailScreen> {
   List<Map<String, dynamic>> _results = [];
+  List<QuestionModel> _questions = [];
   bool _isLoading = true;
   bool _isPublishing = false;
   late bool _resultsPublished;
@@ -20,6 +24,18 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
   void initState() {
     super.initState();
     _resultsPublished = widget.exam['results_published'] ?? false;
+    
+    final questionsRaw = widget.exam['questions'];
+    if (questionsRaw != null && questionsRaw is List) {
+      _questions = (questionsRaw as List)
+          .map((q) => QuestionModel.fromJson(q as Map<String, dynamic>))
+          .toList();
+      print('DETAIL: Parsed ${_questions.length} questions');
+    } else {
+      _questions = [];
+      print('DETAIL: No questions found in exam data');
+    }
+
     _loadResults();
     debugPrint('DETAIL: Screen opened for exam: ${widget.exam['code']}');
     debugPrint('DETAIL: Result mode: ${widget.exam['result_mode']}');
@@ -29,6 +45,25 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
   Future<void> _loadResults() async {
     setState(() => _isLoading = true);
     try {
+      // Re-fetch the exam to ensure questions are loaded
+      final examWithQuestions = await Supabase.instance.client
+        .from('exams')
+        .select()
+        .eq('code', widget.exam['code'])
+        .single();
+      
+      print('DETAIL: Re-fetched exam with questions: ${examWithQuestions['questions'] != null}');
+      
+      final questionsRaw = examWithQuestions['questions'];
+      if (questionsRaw != null && questionsRaw is List) {
+        setState(() {
+          _questions = (questionsRaw as List)
+              .map((q) => QuestionModel.fromJson(q as Map<String, dynamic>))
+              .toList();
+        });
+        print('DETAIL: Questions loaded: ${_questions.length}');
+      }
+
       final result = await SupabaseService.getExamResults(widget.exam['code']);
       setState(() {
         _results = result;
@@ -291,65 +326,80 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
     else if (rank == 3) rankColor = Colors.brown.shade300;
     else rankColor = Colors.grey.shade200;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: rankColor,
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  rank.toString(),
-                  style: TextStyle(
-                    color: rank <= 3 ? Colors.white : Colors.black54,
-                    fontWeight: FontWeight.bold,
+    return InkWell(
+      onTap: () {
+        debugPrint('DETAIL: Opening response for ${result['enrollment_number']}');
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => StudentResponseScreen(
+              result: result,
+              questions: _questions,
+            ),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Colors.grey.shade200),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: rankColor,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    rank.toString(),
+                    style: TextStyle(
+                      color: rank <= 3 ? Colors.white : Colors.black54,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      result['enrollment_number'] ?? 'Unknown',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      time,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    name,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    '$score / $total',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.blueAccent),
                   ),
-                  const SizedBox(height: 4),
                   Text(
-                    time,
-                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    '($percentage%)',
+                    style: TextStyle(fontSize: 12, color: percentage >= 50 ? Colors.green : Colors.red),
                   ),
                 ],
               ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  '$score / $total',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.blueAccent),
-                ),
-                Text(
-                  '($percentage%)',
-                  style: TextStyle(fontSize: 12, color: percentage >= 50 ? Colors.green : Colors.red),
-                ),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
