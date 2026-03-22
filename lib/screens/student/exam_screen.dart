@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import '../../models/question_model.dart';
 import '../../services/supabase_service.dart';
 import '../auth/login_screen.dart';
@@ -7,12 +8,14 @@ class StudentExamScreen extends StatefulWidget {
   final List<QuestionModel> questions;
   final String examCode;
   final String enrollmentNumber;
+  final Map<String, dynamic>? timerData;
 
   const StudentExamScreen({
     super.key,
     required this.questions,
     required this.examCode,
     required this.enrollmentNumber,
+    this.timerData,
   });
 
   @override
@@ -28,12 +31,108 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
   bool _resultsPublished = false;
   bool _isCheckingResults = false;
 
+  // Timer state
+  Timer? _countdownTimer;
+  int _remainingSeconds = 0;
+  bool _timerExpired = false;
+  String _timerMode = 'none';
+
   @override
   void initState() {
     super.initState();
     _selectedAnswers = List.filled(widget.questions.length, null);
     debugPrint('EXAM: Started for ${widget.enrollmentNumber}, questions: ${widget.questions.length}');
-    debugPrint('EXAM: Question ${_currentQuestion + 1} viewed');
+    
+    // Initialize Timer
+    if (widget.timerData != null && widget.timerData!['valid'] == true) {
+      if (widget.timerData!.containsKey('durationMinutes')) {
+        _timerMode = 'duration';
+        _remainingSeconds = widget.timerData!['durationMinutes'] * 60;
+        _startCountdown();
+        print('TIMER: Duration mode - ${widget.timerData!['durationMinutes']} minutes');
+      } else if (widget.timerData!.containsKey('remainingMinutes')) {
+        _timerMode = 'window';
+        _remainingSeconds = widget.timerData!['remainingMinutes'] * 60;
+        _startCountdown();
+        print('TIMER: Window mode - ${widget.timerData!['remainingMinutes']} minutes remaining');
+      }
+    }
+    
+    print('TIMER: Started - mode: $_timerMode, seconds: $_remainingSeconds');
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startCountdown() {
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_remainingSeconds <= 0) {
+        timer.cancel();
+        if (mounted) {
+          setState(() => _timerExpired = true);
+          print('TIMER: Time up! Auto提交...');
+          _autoSubmit();
+        }
+      } else {
+        if (mounted) {
+          setState(() => _remainingSeconds--);
+          
+          if (_remainingSeconds % 30 == 0) {
+            print('TIMER: Remaining: ${_formatTime(_remainingSeconds)}');
+          }
+
+          if (_remainingSeconds == 300) {
+             ScaffoldMessenger.of(context).showSnackBar(
+               const SnackBar(
+                 content: Text('5 minutes remaining!'),
+                 backgroundColor: Colors.orange,
+                 duration: Duration(seconds: 3),
+               )
+             );
+             print('TIMER: 5 minutes warning shown');
+          }
+          if (_remainingSeconds == 60) {
+             ScaffoldMessenger.of(context).showSnackBar(
+               const SnackBar(
+                 content: Text('1 minute remaining! Submit soon.'),
+                 backgroundColor: Colors.red,
+                 duration: Duration(seconds: 3),
+               )
+             );
+             print('TIMER: 1 minute warning shown');
+          }
+        }
+      }
+    });
+  }
+
+  Future<void> _autoSubmit() async {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Time up! Submitting exam...'),
+          backgroundColor: Colors.red,
+        )
+      );
+    }
+    print('TIMER: Auto submit triggered');
+    await Future.delayed(const Duration(seconds: 2));
+    if (mounted && !_examSubmitted) {
+      _submitExam();
+    }
+  }
+
+  String _formatTime(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    if (h > 0) {
+      return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    }
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
   int _calculateScore() {
@@ -140,11 +239,40 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: const Text('Exam'),
+        title: const Text('Exam', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         automaticallyImplyLeading: false,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
+        actions: [
+          if (_timerMode != 'none' && !_examSubmitted)
+            Padding(
+              padding: const EdgeInsets.only(right: 16, top: 12, bottom: 12),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _remainingSeconds <= 60 ? Colors.red : 
+                         _remainingSeconds <= 300 ? Colors.orange : Colors.green,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.timer, color: Colors.white, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      _formatTime(_remainingSeconds),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
       body: _isSubmitting 
           ? _buildSubmittingState()

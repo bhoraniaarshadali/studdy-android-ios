@@ -242,6 +242,8 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
                 _buildCodeBadge(code),
               ],
             ),
+            const SizedBox(height: 8),
+            _buildTimerBadge(exam),
             const SizedBox(height: 12),
           ],
         ),
@@ -320,5 +322,86 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
       );
     }
     return _buildBadge('PENDING', Colors.orange);
+  }
+
+  Widget _buildTimerBadge(Map<String, dynamic> exam) {
+    final mode = exam['timer_mode'] ?? 'none';
+    print('DASHBOARD: Timer mode for ${exam['code']}: $mode');
+
+    if (mode == 'none') return const SizedBox.shrink();
+
+    if (mode == 'duration') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.hourglass_bottom, size: 12, color: Colors.blue.shade700),
+            const SizedBox(width: 4),
+            Text(
+              '${exam['duration_minutes']} min limit',
+              style: TextStyle(color: Colors.blue.shade700, fontSize: 10, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (mode == 'window') {
+      try {
+        final start = DateTime.parse(exam['window_start']).toLocal();
+        final end = DateTime.parse(exam['window_end']).toLocal();
+        final now = DateTime.now();
+
+        Color bgColor;
+        Color textColor;
+        String text;
+        IconData icon;
+
+        if (now.isBefore(start)) {
+          bgColor = Colors.orange.shade50;
+          textColor = Colors.orange.shade700;
+          text = 'Starts ${start.day}/${start.month} ${start.hour}:${start.minute.toString().padLeft(2, '0')}';
+          icon = Icons.schedule;
+        } else if (now.isAfter(end)) {
+          bgColor = Colors.grey.shade100;
+          textColor = Colors.grey.shade600;
+          text = 'Expired';
+          icon = Icons.timer_off;
+        } else {
+          bgColor = Colors.green.shade50;
+          textColor = Colors.green.shade700;
+          text = 'Live until ${end.hour}:${end.minute.toString().padLeft(2, '0')}';
+          icon = Icons.sensors;
+        }
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 12, color: textColor),
+              const SizedBox(width: 4),
+              Text(
+                text,
+                style: TextStyle(color: textColor, fontSize: 10, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        );
+      } catch (e) {
+        return const SizedBox.shrink();
+      }
+    }
+
+    return const SizedBox.shrink();
   }
 }

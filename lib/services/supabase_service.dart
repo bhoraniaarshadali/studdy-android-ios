@@ -18,18 +18,24 @@ class SupabaseService {
     required String title,
     required List<QuestionModel> questions,
     required String resultMode, // 'instant' or 'manual'
+    required String timerMode, // 'none', 'duration', 'window'
+    int? durationMinutes,
+    DateTime? windowStart,
+    DateTime? windowEnd,
   }) async {
     debugPrint('PUBLISH: Starting publish process');
     debugPrint('PUBLISH: Title: $title');
-    debugPrint('PUBLISH: Total questions: ${questions.length}');
-    debugPrint('PUBLISH: Result mode: $resultMode');
+    debugPrint('PUBLISH: Timer: $timerMode ($durationMinutes min)');
     try {
       final code = generateExamCode();
       debugPrint('PUBLISH: Generated code: $code');
       
       final questionsJson = questions.map((q) => q.toJson()).toList();
-      debugPrint('PUBLISH: Questions JSON prepared: ${questionsJson.length} items');
       
+      print('PUBLISH: Timer mode: $timerMode');
+      if (timerMode == 'duration') print('PUBLISH: Duration: $durationMinutes minutes');
+      if (timerMode == 'window') print('PUBLISH: Window: $windowStart to $windowEnd');
+
       debugPrint('PUBLISH: Sending to Supabase...');
       await _client.from('exams').insert({
         'code': code,
@@ -37,6 +43,10 @@ class SupabaseService {
         'questions': questionsJson,
         'result_mode': resultMode,
         'results_published': false,
+        'timer_mode': timerMode,
+        'duration_minutes': durationMinutes,
+        'window_start': windowStart?.toUtc().toIso8601String(),
+        'window_end': windowEnd?.toUtc().toIso8601String(),
       });
       
       debugPrint('PUBLISH: Success! Exam saved with code: $code');
@@ -206,7 +216,7 @@ class SupabaseService {
       debugPrint('ACTIVE_EXAMS: Fetching all exams');
       final exams = await _client
           .from('exams')
-          .select('id, code, title, result_mode, results_published, created_at')
+          .select('*')
           .order('created_at', ascending: false);
       
       return List<Map<String, dynamic>>.from(exams);
@@ -263,7 +273,7 @@ class SupabaseService {
       debugPrint('EXAM_DETAILS: Looking for exam code: $code');
       final response = await _client
           .from('exams')
-          .select()
+          .select('*')
           .eq('code', code)
           .single();
       
@@ -273,6 +283,61 @@ class SupabaseService {
       debugPrint('EXAM_DETAILS: ERROR - $e');
       throw Exception('Exam not found. Check the code and try again.');
     }
+  }
+
+  // Validate if exam is within its time window
+  static Map<String, dynamic> validateExamWindow(Map<String, dynamic> exam) {
+    final mode = exam['timer_mode'] ?? 'none';
+    
+    if (mode == 'none') {
+      return {'valid': true, 'message': ''};
+    }
+    
+    if (mode == 'duration') {
+      return {
+        'valid': true, 
+        'message': '', 
+        'reason': 'duration',
+        'durationMinutes': exam['duration_minutes']
+      };
+    }
+    
+    if (mode == 'window') {
+      final now = DateTime.now().toUtc();
+      final start = DateTime.parse(exam['window_start']).toUtc();
+      final end = DateTime.parse(exam['window_end']).toUtc();
+      
+      if (now.isBefore(start)) {
+        return {
+          'valid': false,
+          'reason': 'not_started',
+          'message': 'Exam has not started yet. Starts at ${start.toLocal()}',
+          'startsAt': start,
+        };
+      }
+      
+      if (now.isAfter(end)) {
+        return {
+          'valid': false,
+          'reason': 'expired',
+          'message': 'Exam window has expired.',
+          'endedAt': end,
+        };
+      }
+      
+      final remainingMinutes = end.difference(now).inMinutes;
+      final result = {
+        'valid': true,
+        'message': '',
+        'reason': 'window',
+        'remainingMinutes': remainingMinutes,
+        'windowEnd': end,
+      };
+      print('TIMER: Validation result: ${result['valid']} - ${result['message']}');
+      return result;
+    }
+    
+    return {'valid': true, 'message': ''};
   }
 
   // Save result to Supabase

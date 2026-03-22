@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/supabase_service.dart';
 import 'exam_screen.dart';
 import '../auth/login_screen.dart';
@@ -8,12 +9,14 @@ class StudentDashboardScreen extends StatefulWidget {
   final String enrollmentNumber;
   final bool isNew;
   final String? pendingExamCode;
+  final Map<String, dynamic>? pendingTimerData;
 
   const StudentDashboardScreen({
     super.key,
     required this.enrollmentNumber,
     this.isNew = false,
     this.pendingExamCode,
+    this.pendingTimerData,
   });
 
   @override
@@ -29,13 +32,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData().then((_) {
-      if (widget.pendingExamCode != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _joinExam(widget.pendingExamCode!);
-        });
-      }
-    });
+    _loadData();
   }
 
   Future<void> _loadData() async {
@@ -78,7 +75,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     }
   }
 
-  Future<void> _joinExam(String examCode) async {
+  Future<void> _joinExam(String examCode, {Map<String, dynamic>? timerData}) async {
     // Check submitted FIRST before anything else
     final alreadySubmitted = _myResults.any(
       (r) => r['exam_code'].toString().trim().toUpperCase() == examCode.trim().toUpperCase()
@@ -112,6 +109,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
               questions: questions,
               examCode: examCode,
               enrollmentNumber: widget.enrollmentNumber,
+              timerData: timerData,
             ),
           ),
         );
@@ -151,12 +149,18 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
         actions: [
           IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh_rounded)),
           IconButton(
-            onPressed: () {
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (context) => const LoginScreen()),
-                (route) => false,
-              );
+            onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.remove('student_enrollment');
+              print('LOGOUT: Enrollment removed, exiting dashboard');
+              
+              if (mounted) {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => const LoginScreen()),
+                  (route) => false,
+                );
+              }
             },
             icon: const Icon(Icons.logout_rounded),
           ),
@@ -323,7 +327,39 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                 ElevatedButton(
                   onPressed: () {
                     print('STUDENT_DASH: Starting exam ${exam['code']}');
-                    _joinExam(exam['code']);
+                    
+                    // Validate window again before joining
+                    final validation = SupabaseService.validateExamWindow(exam);
+                    if (validation['valid'] == false) {
+                      final reason = validation['reason'];
+                      if (reason == 'not_started') {
+                        final startsAt = validation['startsAt'] as DateTime;
+                        final local = startsAt.toLocal();
+                        final formatted = '${local.day}/${local.month}/${local.year} ${local.hour}:${local.minute.toString().padLeft(2, '0')}';
+                        
+                        showDialog(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            title: const Row(children: [Icon(Icons.schedule, color: Colors.orange), SizedBox(width: 8), Text('Not Started')]),
+                            content: Text('This exam has not started yet. Starts at: $formatted'),
+                            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                          ),
+                        );
+                        return;
+                      } else if (reason == 'expired') {
+                        showDialog(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            title: const Row(children: [Icon(Icons.timer_off, color: Colors.red), SizedBox(width: 8), Text('Expired')]),
+                            content: const Text('This exam window has expired and is no longer available.'),
+                            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                          ),
+                        );
+                        return;
+                      }
+                    }
+                    
+                    _joinExam(exam['code'], timerData: validation);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,

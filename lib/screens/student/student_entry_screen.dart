@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/supabase_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'student_dashboard_screen.dart';
 import 'qr_scan_screen.dart';
 
@@ -18,6 +19,7 @@ class _StudentEntryScreenState extends State<StudentEntryScreen> {
   bool _isLoading = false;
   int _step = 1; // 1 = code entry, 2 = enrollment entry
   Map<String, dynamic>? _examData;
+  Map<String, dynamic>? _timerValidation;
 
   @override
   void initState() {
@@ -51,9 +53,63 @@ class _StudentEntryScreenState extends State<StudentEntryScreen> {
     print('ENTRY: Verifying code: $code');
 
     try {
-      final exam = await SupabaseService.getExamDetails(code);
+      final examData = await SupabaseService.getExamDetails(code);
+      _examData = examData;
+
+      // Timer window validation
+      final timerValidation = SupabaseService.validateExamWindow(_examData!);
+      
+      if (timerValidation['valid'] == false) {
+        final reason = timerValidation['reason'];
+        
+        if (reason == 'not_started' && mounted) {
+          final startsAt = timerValidation['startsAt'] as DateTime;
+          final local = startsAt.toLocal();
+          final formatted = '${local.day}/${local.month}/${local.year} ${local.hour}:${local.minute.toString().padLeft(2, '0')}';
+          
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Row(children: [Icon(Icons.schedule, color: Colors.orange), SizedBox(width: 8), Text('Not Started Yet')]),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('This exam has not started yet.'),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
+                    child: Text('Starts at: $formatted', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange.shade800)),
+                  ),
+                ],
+              ),
+              actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+            ),
+          );
+          setState(() => _isLoading = false);
+          print('TIMER: Exam not started yet, starts at: $startsAt');
+          return;
+        }
+        
+        if (reason == 'expired' && mounted) {
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Row(children: [Icon(Icons.timer_off, color: Colors.red), SizedBox(width: 8), Text('Exam Expired')]),
+              content: const Text('This exam window has expired. You can no longer take this exam.'),
+              actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+            ),
+          );
+          setState(() => _isLoading = false);
+          print('TIMER: Exam window expired');
+          return;
+        }
+      }
+
+      print('TIMER: Exam valid - proceeding to step 2');
       setState(() {
-        _examData = exam;
+        _examData = examData;
+        _timerValidation = timerValidation;
         _step = 2;
         _isLoading = false;
       });
@@ -88,7 +144,7 @@ class _StudentEntryScreenState extends State<StudentEntryScreen> {
       
       if (isNew) {
         print('ENTRY: New student, going to dashboard');
-        _navigateToDashboard(enrollment, true);
+        await _navigateToDashboard(enrollment, true);
       } else {
         print('ENTRY: Existing student');
         // Check if student already gave this exam
@@ -98,6 +154,10 @@ class _StudentEntryScreenState extends State<StudentEntryScreen> {
         if (alreadyGaveExam) {
           print('ENTRY: Exam already submitted, going to dashboard directly');
           if (mounted) {
+            // Persist enrollment number
+            final SharedPreferences prefs = await SharedPreferences.getInstance();
+            await prefs.setString('student_enrollment', enrollment.trim());
+            
             Navigator.pushReplacement(
               context, 
               MaterialPageRoute(
@@ -110,9 +170,8 @@ class _StudentEntryScreenState extends State<StudentEntryScreen> {
             );
           }
           return;
-        }
- else {
-          _navigateToDashboard(enrollment, false);
+        } else {
+          await _navigateToDashboard(enrollment, false);
         }
       }
     } catch (e) {
@@ -127,14 +186,19 @@ class _StudentEntryScreenState extends State<StudentEntryScreen> {
     }
   }
 
-  void _navigateToDashboard(String enrollment, bool isNew) {
+  Future<void> _navigateToDashboard(String enrollment, bool isNew) async {
     if (mounted) {
+      // Persist enrollment number
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('student_enrollment', enrollment.trim());
+
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
           builder: (context) => StudentDashboardScreen(
             enrollmentNumber: enrollment.trim(),
-            pendingExamCode: _codeController.text.trim().toUpperCase(),
+            pendingExamCode: null,
+            pendingTimerData: null,
             isNew: isNew,
           ),
         ),

@@ -203,6 +203,8 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
                 _buildStatBox('Mode', mode.toUpperCase(), mode == 'instant' ? Colors.green : Colors.orange),
               ],
             ),
+            const SizedBox(height: 16),
+            _buildTimerInfoRow(),
             if (isManual && !_resultsPublished) ...[
               const SizedBox(height: 20),
               Container(
@@ -424,6 +426,145 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
               style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimerInfoRow() {
+    final mode = widget.exam['timer_mode'] ?? 'none';
+    print('DETAIL: Timer info - mode: $mode');
+
+    if (mode == 'none') {
+      return Row(
+        children: [
+          Icon(Icons.timer_off_outlined, size: 16, color: Colors.grey.shade400),
+          const SizedBox(width: 8),
+          Text('No time limit', style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+        ],
+      );
+    }
+
+    if (mode == 'duration') {
+      return Row(
+        children: [
+          const Icon(Icons.hourglass_bottom_rounded, size: 16, color: Colors.blueAccent),
+          const SizedBox(width: 8),
+          Text(
+            '${widget.exam['duration_minutes']} minutes per attempt',
+            style: const TextStyle(color: Colors.blueAccent, fontSize: 13, fontWeight: FontWeight.w500),
+          ),
+        ],
+      );
+    }
+
+    if (mode == 'window') {
+      try {
+        final start = DateTime.parse(widget.exam['window_start']).toLocal();
+        final end = DateTime.parse(widget.exam['window_end']).toLocal();
+        final now = DateTime.now();
+
+        String format(DateTime dt) {
+          final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          return '${dt.day} ${months[dt.month - 1]} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+        }
+
+        Widget statusBadge;
+        if (now.isBefore(start)) {
+          statusBadge = _buildTimerStatusBadge('Upcoming', Colors.orange);
+        } else if (now.isAfter(end)) {
+          statusBadge = _buildTimerStatusBadge('Expired', Colors.grey);
+        } else {
+          statusBadge = Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const PulsingDot(),
+              const SizedBox(width: 6),
+              _buildTimerStatusBadge('Live Now', Colors.green),
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.calendar_month_outlined, size: 16, color: Colors.grey.shade600),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Window: ${format(start)} → ${format(end)}',
+                    style: TextStyle(color: Colors.grey.shade700, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            statusBadge,
+          ],
+        );
+      } catch (e) {
+        return const SizedBox.shrink();
+      }
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildTimerStatusBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+}
+
+class PulsingDot extends StatefulWidget {
+  const PulsingDot({super.key});
+
+  @override
+  State<PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<PulsingDot> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+    _animation = Tween<double>(begin: 0.3, end: 1.0).animate(_controller);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _animation,
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: const BoxDecoration(
+          color: Colors.green,
+          shape: BoxShape.circle,
         ),
       ),
     );

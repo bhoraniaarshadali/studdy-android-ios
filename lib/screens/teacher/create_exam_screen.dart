@@ -31,6 +31,10 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
   String _statusText = '';
   bool _isPublishing = false;
   String _resultMode = 'instant'; // 'instant' or 'manual'
+  String _timerMode = 'none'; // 'none', 'duration', 'window'
+  int _durationMinutes = 30;
+  DateTime? _windowStart;
+  DateTime? _windowEnd;
 
   Future<void> _pickPDF() async {
     debugPrint('PDF_PICK: Button tapped');
@@ -195,6 +199,22 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
       return;
     }
 
+    // Timer validation
+    if (_timerMode == 'window') {
+      if (_windowStart == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select exam start time')));
+        return;
+      }
+      if (_windowEnd == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select exam end time')));
+        return;
+      }
+      if (_windowEnd!.isBefore(_windowStart!)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('End time must be after start time')));
+        return;
+      }
+    }
+
     debugPrint('PUBLISH_BTN: Questions ready: ${_questions.length}');
     setState(() => _isPublishing = true);
 
@@ -204,6 +224,10 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
         title: 'Exam ${DateTime.now().toLocal().toString().substring(0, 16)}',
         questions: _questions,
         resultMode: _resultMode,
+        timerMode: _timerMode,
+        durationMinutes: _timerMode == 'duration' ? _durationMinutes : null,
+        windowStart: _timerMode == 'window' ? _windowStart : null,
+        windowEnd: _timerMode == 'window' ? _windowEnd : null,
       );
       debugPrint('PUBLISH_BTN: Got code: $code');
       debugPrint('PUBLISH: Result mode: $_resultMode');
@@ -260,6 +284,8 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
               _buildSettingsRow(),
               const SizedBox(height: 24),
               _buildResultModeUI(),
+              const SizedBox(height: 24),
+              _buildTimerSettingsUI(),
               const SizedBox(height: 24),
               _buildGenerateButton(),
               if (_statusText.isNotEmpty) ...[
@@ -331,7 +357,7 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
       onTap: () => setState(() => _resultMode = mode),
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
           color: isSelected ? Colors.blueAccent.withOpacity(0.05) : Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -342,12 +368,13 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
         ),
         child: Column(
           children: [
-            Icon(icon, color: isSelected ? Colors.blueAccent : Colors.grey),
+            Icon(icon, color: isSelected ? Colors.blueAccent : Colors.grey, size: 20),
             const SizedBox(height: 8),
             Text(
               title,
               style: TextStyle(
                 fontWeight: FontWeight.bold,
+                fontSize: 13,
                 color: isSelected ? Colors.blueAccent : Colors.black87,
               ),
             ),
@@ -359,6 +386,231 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildTimerSettingsUI() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Timer Settings',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildTimerCard(
+                mode: 'none',
+                icon: Icons.timer_off_outlined,
+                title: 'No Timer',
+                subtitle: 'No limit',
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildTimerCard(
+                mode: 'duration',
+                icon: Icons.hourglass_empty_rounded,
+                title: 'Duration',
+                subtitle: 'Fixed mins',
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildTimerCard(
+                mode: 'window',
+                icon: Icons.schedule_rounded,
+                title: 'Window',
+                subtitle: 'Start/End',
+              ),
+            ),
+          ],
+        ),
+        if (_timerMode == 'duration') _buildDurationPicker(),
+        if (_timerMode == 'window') _buildWindowPicker(),
+      ],
+    );
+  }
+
+  Widget _buildTimerCard({
+    required String mode,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    final isSelected = _timerMode == mode;
+    return InkWell(
+      onTap: () => setState(() => _timerMode = mode),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.blueAccent.withOpacity(0.05) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? Colors.blueAccent : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: isSelected ? Colors.blueAccent : Colors.grey, size: 20),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: isSelected ? Colors.blueAccent : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 10, color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDurationPicker() {
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Duration (minutes)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black54)),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                onPressed: () {
+                  if (_durationMinutes > 5) setState(() => _durationMinutes -= 5);
+                },
+                icon: const Icon(Icons.remove_circle_outline, color: Colors.blueAccent),
+              ),
+              const SizedBox(width: 20),
+              Text(
+                '$_durationMinutes',
+                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.blueAccent),
+              ),
+              const SizedBox(width: 20),
+              IconButton(
+                onPressed: () {
+                  if (_durationMinutes < 180) setState(() => _durationMinutes += 5);
+                },
+                icon: const Icon(Icons.add_circle_outline, color: Colors.blueAccent),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            children: [15, 30, 45, 60, 90].map((m) {
+              return ChoiceChip(
+                label: Text('$m min', style: TextStyle(fontSize: 12, color: _durationMinutes == m ? Colors.white : Colors.black87)),
+                selected: _durationMinutes == m,
+                onSelected: (selected) => setState(() => _durationMinutes = m),
+                selectedColor: Colors.blueAccent,
+                backgroundColor: Colors.white,
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWindowPicker() {
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Exam Start Time', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black54)),
+          const SizedBox(height: 8),
+          _buildDateTimePicker(
+            value: _windowStart,
+            hint: 'Select start date & time',
+            onPicked: (dt) => setState(() => _windowStart = dt),
+          ),
+          const SizedBox(height: 16),
+          const Text('Exam End Time', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black54)),
+          const SizedBox(height: 8),
+          _buildDateTimePicker(
+            value: _windowEnd,
+            hint: 'Select end date & time',
+            onPicked: (dt) {
+              if (_windowStart != null && dt.isBefore(_windowStart!)) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('End time must be after start time')));
+                return;
+              }
+              setState(() => _windowEnd = dt);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDateTimePicker({
+    required DateTime? value,
+    required String hint,
+    required ValueChanged<DateTime> onPicked,
+  }) {
+    return OutlinedButton(
+      onPressed: () async {
+        final date = await showDatePicker(
+          context: context,
+          initialDate: value ?? DateTime.now(),
+          firstDate: DateTime.now(),
+          lastDate: DateTime.now().add(const Duration(days: 365)),
+        );
+        if (date == null) return;
+        
+        final time = await showTimePicker(
+          context: context,
+          initialTime: TimeOfDay.fromDateTime(value ?? DateTime.now()),
+        );
+        if (time == null) return;
+        
+        final dt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+        onPicked(dt);
+        print('TIMER: Window set: $dt');
+      },
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(double.infinity, 50),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        side: BorderSide(color: Colors.grey.shade300),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            value != null ? value.toString().substring(0, 16) : hint,
+            style: TextStyle(color: value != null ? Colors.black87 : Colors.grey, fontSize: 14),
+          ),
+          const Icon(Icons.calendar_today, size: 18, color: Colors.blueAccent),
+        ],
       ),
     );
   }
