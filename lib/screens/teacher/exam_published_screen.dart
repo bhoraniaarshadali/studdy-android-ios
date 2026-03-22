@@ -1,6 +1,7 @@
-import 'dart:io';
+import 'dart:io' show File;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:screenshot/screenshot.dart';
@@ -196,11 +197,19 @@ class _ExamPublishedScreenState extends State<ExamPublishedScreen> {
           width: double.infinity,
           height: 52,
           child: ElevatedButton.icon(
-            onPressed: _isSharing ? null : _shareQRWithCode,
+            onPressed: _isSharing ? null : (kIsWeb ? () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Right-click QR image to save or copy it.')),
+              );
+            } : _shareQRWithCode),
             icon: _isSharing 
                 ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.share_rounded),
-            label: Text(_isSharing ? 'Generating...' : 'Share QR & Code'),
+                : Icon(kIsWeb ? Icons.download_rounded : Icons.share_rounded),
+            label: Text(
+              _isSharing 
+                  ? 'Generating...' 
+                  : (kIsWeb ? 'Save QR (Right-click)' : 'Share QR & Code')
+            ),
             style: ElevatedButton.styleFrom(
               elevation: 0,
               backgroundColor: Colors.blueAccent,

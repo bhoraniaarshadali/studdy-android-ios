@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../../services/supabase_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'student_dashboard_screen.dart';
@@ -316,41 +317,43 @@ class _StudentEntryScreenState extends State<StudentEntryScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 32),
-        const Row(
-          children: [
-            Expanded(child: Divider()),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Text("OR", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-            ),
-            Expanded(child: Divider()),
-          ],
-        ),
-        const SizedBox(height: 32),
-        SizedBox(
-          width: double.infinity,
-          height: 52,
-          child: OutlinedButton.icon(
-            onPressed: () async {
-              final result = await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const QRScanScreen()),
-              );
-              if (result != null && result is String) {
-                _codeController.text = result;
-                _verifyCode();
-              }
-            },
-            icon: const Icon(Icons.qr_code_scanner_rounded),
-            label: const Text('Scan QR Code', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Colors.blueAccent),
-              foregroundColor: Colors.blueAccent,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        if (!kIsWeb) const SizedBox(height: 24),
+        if (!kIsWeb)
+          const Row(
+            children: [
+              Expanded(child: Divider()),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Text("OR", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+              ),
+              Expanded(child: Divider()),
+            ],
+          ),
+        if (!kIsWeb) const SizedBox(height: 24),
+        if (!kIsWeb)
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const QRScanScreen()),
+                );
+                if (result != null && result is String) {
+                  _codeController.text = result;
+                  _verifyCode();
+                }
+              },
+              icon: const Icon(Icons.qr_code_scanner_rounded),
+              label: const Text('Scan QR Code', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Colors.blueAccent),
+                foregroundColor: Colors.blueAccent,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
             ),
           ),
-        ),
       ],
     );
   }

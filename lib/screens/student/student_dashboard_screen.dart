@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'qr_scan_screen.dart';
 import '../../services/supabase_service.dart';
 import 'exam_screen.dart';
 import '../auth/login_screen.dart';
@@ -184,7 +186,19 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                 children: [
                   if (widget.isNew) _buildWelcomeBanner() else _buildStatsRow(),
                   const SizedBox(height: 24),
-                  _buildSectionHeader('Upcoming Exams', Icons.calendar_today_outlined),
+                  _buildSectionHeader(
+                    'Upcoming Exams', 
+                    Icons.calendar_today_outlined,
+                    onScan: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const QRScanScreen()),
+                      );
+                      if (result != null && result is String) {
+                        _joinExam(result);
+                      }
+                    },
+                  ),
                   const SizedBox(height: 12),
                   _buildUpcomingSection(),
                   const SizedBox(height: 24),
@@ -257,7 +271,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     );
   }
 
-  Widget _buildSectionHeader(String title, IconData icon) {
+  Widget _buildSectionHeader(String title, IconData icon, {VoidCallback? onScan}) {
     return Row(
       children: [
         Icon(icon, size: 20, color: Colors.black87),
@@ -266,6 +280,13 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
           title,
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
         ),
+        const Spacer(),
+        if (onScan != null && !kIsWeb)
+          IconButton(
+            onPressed: onScan,
+            icon: const Icon(Icons.qr_code_scanner, color: Colors.blueAccent),
+            tooltip: 'Scan QR Code',
+          ),
       ],
     );
   }

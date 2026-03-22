@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:image_picker/image_picker.dart';
 import 'student_entry_screen.dart';
@@ -135,102 +136,130 @@ class _QRScanScreenState extends State<QRScanScreen> with SingleTickerProviderSt
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          // Scanner
-          MobileScanner(
-            controller: _scannerController,
-            onDetect: (capture) {
-              if (_isScanned) return;
-              final barcode = capture.barcodes.first;
-              final code = barcode.rawValue;
-              
-              if (code != null && code.length == 6) {
-                _onCodeScanned(code);
-              }
-            },
-          ),
-          
-          // Enhanced Overlay
-          AnimatedBuilder(
-            animation: _animationController,
-            builder: (context, child) {
-              return CustomPaint(
-                painter: ScannerOverlayPainter(
-                  scanLinePosition: _animationController.value,
-                  isScanned: _isScanned,
-                ),
-                child: Container(),
-              );
-            },
-          ),
-          
-          // UI Elements
-          SafeArea(
-            child: Column(
-              children: [
-                const SizedBox(height: 80),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(30),
+      body: kIsWeb
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.qr_code_scanner, size: 64, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'QR scanning is not available on web.',
+                    style: TextStyle(fontSize: 16, color: Colors.grey, fontWeight: FontWeight.bold),
                   ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.camera_alt_outlined, color: Colors.white, size: 18),
-                      SizedBox(width: 10),
-                      Text(
-                        "Point at the Exam QR Code",
-                        style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Please enter the exam code manually.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueAccent,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Go Back'),
+                  ),
+                ],
+              ),
+            )
+          : Stack(
+              children: [
+                // Scanner
+                MobileScanner(
+                  controller: _scannerController,
+                  onDetect: (capture) {
+                    if (_isScanned) return;
+                    final barcode = capture.barcodes.first;
+                    final code = barcode.rawValue;
+                    
+                    if (code != null && code.length == 6) {
+                      _onCodeScanned(code);
+                    }
+                  },
+                ),
+                
+                // Enhanced Overlay
+                AnimatedBuilder(
+                  animation: _animationController,
+                  builder: (context, child) {
+                    return CustomPaint(
+                      painter: ScannerOverlayPainter(
+                        scanLinePosition: _animationController.value,
+                        isScanned: _isScanned,
                       ),
+                      child: Container(),
+                    );
+                  },
+                ),
+                
+                // UI Elements
+                SafeArea(
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 80),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.camera_alt_outlined, color: Colors.white, size: 18),
+                            SizedBox(width: 10),
+                            Text(
+                              "Point at the Exam QR Code",
+                              style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      if (_isScanned) 
+                        Expanded(
+                          child: Center(
+                            child: _buildScanSuccessUI(),
+                          ),
+                        )
+                      else 
+                        Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 40),
+                          child: Column(
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: _isProcessingGallery ? null : _pickFromGallery,
+                                icon: _isProcessingGallery 
+                                  ? const SizedBox(
+                                      width: 18, 
+                                      height: 18, 
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)
+                                    )
+                                  : const Icon(Icons.photo_library_outlined, color: Colors.white),
+                                label: Text(
+                                  _isProcessingGallery ? 'Reading QR...' : 'Select from Gallery',
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: Colors.white38),
+                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                                  minimumSize: const Size(double.infinity, 48),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              _buildGuidanceText(),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 60),
                     ],
                   ),
                 ),
-                const Spacer(),
-                if (_isScanned) 
-                  Expanded(
-                    child: Center(
-                      child: _buildScanSuccessUI(),
-                    ),
-                  )
-                else 
-                  Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 40),
-                    child: Column(
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: _isProcessingGallery ? null : _pickFromGallery,
-                          icon: _isProcessingGallery 
-                            ? const SizedBox(
-                                width: 18, 
-                                height: 18, 
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)
-                              )
-                            : const Icon(Icons.photo_library_outlined, color: Colors.white),
-                          label: Text(
-                            _isProcessingGallery ? 'Reading QR...' : 'Select from Gallery',
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Colors.white38),
-                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-                            minimumSize: const Size(double.infinity, 48),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        _buildGuidanceText(),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 60),
               ],
             ),
-          ),
-        ],
-      ),
     );
   }
 
