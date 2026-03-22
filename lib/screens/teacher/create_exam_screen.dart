@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:http/http.dart' as http;
 import '../../models/question_model.dart';
 import '../../services/kie_ai_service.dart';
 
@@ -17,33 +21,145 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
   int _optionCount = 4;
   String _difficulty = 'medium';
 
+  // New state variables
+  String? _pdfFileName;
+  Uint8List? _pdfBytes;
+  String _statusText = '';
+
+  Future<void> _pickPDF() async {
+    print('PDF_PICK: Button tapped');
+    try {
+      print('PDF_PICK: FilePicker opened');
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+        withData: true,
+      );
+
+      if (result != null && result.files.single.bytes != null) {
+        setState(() {
+          _pdfFileName = result.files.single.name;
+          _pdfBytes = result.files.single.bytes;
+        });
+        print('PDF_PICK: File selected - name: $_pdfFileName, bytes: ${_pdfBytes?.length}');
+      } else {
+        print('PDF_PICK: No file selected, user cancelled');
+      }
+    } catch (e) {
+      print('PDF_PICK: ERROR - $e');
+    }
+  }
+
+  Future<String> _extractTextFromPDF() async {
+    if (_pdfBytes == null) return '';
+
+    print('PDF_EXTRACT: Starting extraction');
+    print('PDF_EXTRACT: PDF bytes size: ${_pdfBytes?.length}');
+    setState(() => _statusText = 'Extracting PDF content...');
+    final base64String = base64Encode(_pdfBytes!);
+    print('PDF_EXTRACT: Base64 string length: ${base64String.length}');
+
+    try {
+      print('PDF_EXTRACT: Sending request to KIE API');
+      final response = await http.post(
+        Uri.parse('https://api.kie.ai/gemini/v1/models/gemini-3-flash-v1betamodels:streamGenerateContent'),
+        headers: {
+          'Authorization': 'Bearer 2d4fb913866d594231cf9ad1f3625a32',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          "stream": false,
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "inline_data": {
+                    "mime_type": "application/pdf",
+                    "data": base64String
+                  }
+                },
+                {
+                  "text": "Extract all text content from this PDF. Return only plain text, no formatting, no markdown."
+                }
+              ]
+            }
+          ]
+        }),
+      );
+
+      print('PDF_EXTRACT: Response status: ${response.statusCode}');
+      print('PDF_EXTRACT: Raw response: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        final String text = data['candidates'][0]['content']['parts'][0]['text'];
+        print('PDF_EXTRACT: Extracted text preview: ${text.substring(0, text.length > 200 ? 200 : text.length)}');
+        print('PDF_EXTRACT: Total text length: ${text.length}');
+        return text;
+      } else {
+        throw Exception('Failed to extract PDF text: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('PDF_EXTRACT: ERROR - $e');
+      rethrow;
+    }
+  }
+
   Future<void> _generateQuestions() async {
-    print('CreateExam: Generate button pressed');
-    if (_contentController.text.trim().isEmpty) {
+    print('GENERATE: Button tapped');
+    print('GENERATE: PDF selected: ${_pdfBytes != null}');
+    print('GENERATE: Manual text length: ${_contentController.text.length}');
+    
+    String content = '';
+    
+    if (_pdfBytes != null) {
+      print('GENERATE: Using PDF content');
+      try {
+        content = await _extractTextFromPDF();
+      } catch (e) {
+        print('GENERATE: ERROR - $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error extracting PDF: $e')),
+        );
+        setState(() => _statusText = '');
+        return;
+      }
+    } else if (_contentController.text.trim().isNotEmpty) {
+      print('GENERATE: Using manual text');
+      content = _contentController.text.trim();
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please paste some content first')),
+        const SnackBar(content: Text('Please upload a PDF or enter content')),
       );
       return;
     }
 
-    print('CreateExam: content length: ${_contentController.text.length}, questions: $_questionCount, options: $_optionCount, difficulty: $_difficulty');
-    setState(() => _isLoading = true);
+    print('CreateExam: content length: ${content.length}, questions: $_questionCount, options: $_optionCount, difficulty: $_difficulty');
+    setState(() {
+      _isLoading = true;
+      _statusText = 'Generating questions...';
+    });
 
     try {
       final questions = await KieAiService.generateQuestions(
-        content: _contentController.text.trim(),
+        content: content,
         questionCount: _questionCount,
         optionCount: _optionCount,
         difficulty: _difficulty,
       );
-      print('CreateExam: Questions received: ${questions.length}');
+      print('GENERATE: Total questions: ${questions.length}');
       setState(() {
         _questions = questions;
         _isLoading = false;
+        _statusText = '';
       });
     } catch (e) {
-      print('CreateExam: Error: $e');
-      setState(() => _isLoading = false);
+      print('GENERATE: ERROR - $e');
+      setState(() {
+        _isLoading = false;
+        _statusText = '';
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
       );
@@ -63,11 +179,32 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              _buildPdfUploadSection(),
+              const SizedBox(height: 16),
+              const Row(
+                children: [
+                  Expanded(child: Divider()),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Text('OR', style: TextStyle(color: Colors.grey)),
+                  ),
+                  Expanded(child: Divider()),
+                ],
+              ),
+              const SizedBox(height: 16),
               _buildContentInputCard(),
               const SizedBox(height: 16),
               _buildSettingsRow(),
               const SizedBox(height: 24),
               _buildGenerateButton(),
+              if (_statusText.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _statusText,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold),
+                ),
+              ],
               if (_questions.isNotEmpty) ...[
                 const SizedBox(height: 32),
                 _buildQuestionsHeader(),
@@ -78,6 +215,29 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildPdfUploadSection() {
+    return Column(
+      children: [
+        OutlinedButton.icon(
+          onPressed: _pickPDF,
+          icon: const Icon(Icons.upload_file),
+          label: const Text('Upload PDF'),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 32),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+        if (_pdfFileName != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            _pdfFileName!,
+            style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ],
     );
   }
 
