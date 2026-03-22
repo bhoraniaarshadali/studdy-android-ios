@@ -99,6 +99,20 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       return;
     }
 
+    final examData = _upcomingExams.firstWhere((e) => e['code'] == examCode);
+    final validation = timerData ?? SupabaseService.validateExamWindow(examData);
+
+    if (validation['valid'] == false) {
+      final reason = validation['reason'];
+      if (reason == 'not_started') {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This exam hasn\'t started yet.')));
+        return;
+      } else if (reason == 'expired') {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This exam has expired.')));
+        return;
+      }
+    }
+
     debugPrint('STUDENT_DASH: Joining exam: $examCode');
     setState(() => _isLoading = true);
     try {
@@ -111,7 +125,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
               questions: questions,
               examCode: examCode,
               enrollmentNumber: widget.enrollmentNumber,
-              timerData: timerData,
+              timerData: validation,
             ),
           ),
         );
@@ -126,6 +140,21 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  String _getExamStatus(Map<String, dynamic> exam) {
+    if (exam['is_submitted'] == true) return 'submitted';
+    
+    if (exam['timer_mode'] == 'window') {
+      final now = DateTime.now().toUtc();
+      final start = DateTime.parse(exam['window_start']).toUtc();
+      final end = DateTime.parse(exam['window_end']).toUtc();
+      
+      if (now.isBefore(start)) return 'not_started';
+      if (now.isAfter(end)) return 'expired';
+    }
+    
+    return 'available';
   }
 
   @override
@@ -292,9 +321,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   }
 
   Widget _buildUpcomingSection() {
-    final nonSubmitted = _upcomingExams.where((e) => e['is_submitted'] != true).toList();
-    
-    if (nonSubmitted.isEmpty) {
+    if (_upcomingExams.isEmpty) {
       return Card(
         elevation: 0,
         color: Colors.grey.shade100,
@@ -309,92 +336,118 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: nonSubmitted.length,
+      itemCount: _upcomingExams.length,
       itemBuilder: (context, index) {
-        final exam = nonSubmitted[index];
-        // At this point isSubmitted is always false because we filtered
+        final exam = _upcomingExams[index];
+        final status = _getExamStatus(exam);
         
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(exam['title'] ?? 'Untitled Exam', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(4)),
-                            child: Text(exam['code'], style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 11)),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(exam['created_at'].toString().substring(0, 10), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        print('DASH: Exam ${exam['code']} status: $status');
+
+        double opacity = 1.0;
+        if (status == 'submitted') opacity = 0.7;
+        if (status == 'expired') opacity = 0.6;
+
+        return Opacity(
+          opacity: opacity,
+          child: Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.grey.shade200),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(exam['title'] ?? 'Untitled Exam', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(4)),
+                              child: Text(exam['code'], style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 11)),
+                            ),
+                            const SizedBox(width: 8),
+                            if (status == 'not_started') ...[
+                              const Icon(Icons.schedule, size: 14, color: Colors.orange),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Starts: ${DateTime.parse(exam['window_start']).toLocal().toString().substring(0, 16)}',
+                                style: const TextStyle(fontSize: 11, color: Colors.orange),
+                              ),
+                            ] else if (status == 'expired') ...[
+                              const Icon(Icons.timer_off, size: 14, color: Colors.red),
+                              const SizedBox(width: 4),
+                              const Text('Exam Expired', style: TextStyle(color: Colors.red, fontSize: 11, fontWeight: FontWeight.bold)),
+                            ] else ...[
+                              Text(exam['created_at'].toString().substring(0, 10), style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                            ],
+                          ],
+                        ),
+                        if (status == 'expired') ...[
+                          const SizedBox(height: 4),
+                          const Text('This exam can no longer be attempted', style: TextStyle(fontSize: 10, color: Colors.grey)),
                         ],
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    print('STUDENT_DASH: Starting exam ${exam['code']}');
-                    
-                    // Validate window again before joining
-                    final validation = SupabaseService.validateExamWindow(exam);
-                    if (validation['valid'] == false) {
-                      final reason = validation['reason'];
-                      if (reason == 'not_started') {
-                        final startsAt = validation['startsAt'] as DateTime;
-                        final local = startsAt.toLocal();
-                        final formatted = '${local.day}/${local.month}/${local.year} ${local.hour}:${local.minute.toString().padLeft(2, '0')}';
-                        
-                        showDialog(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: const Row(children: [Icon(Icons.schedule, color: Colors.orange), SizedBox(width: 8), Text('Not Started')]),
-                            content: Text('This exam has not started yet. Starts at: $formatted'),
-                            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
-                          ),
-                        );
-                        return;
-                      } else if (reason == 'expired') {
-                        showDialog(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: const Row(children: [Icon(Icons.timer_off, color: Colors.red), SizedBox(width: 8), Text('Expired')]),
-                            content: const Text('This exam window has expired and is no longer available.'),
-                            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
-                          ),
-                        );
-                        return;
-                      }
-                    }
-                    
-                    _joinExam(exam['code'], timerData: validation);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    elevation: 0,
-                  ),
-                  child: const Text('Start Exam'),
-                ),
-              ],
+                  _buildStatusButton(exam, status),
+                ],
+              ),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildStatusButton(Map<String, dynamic> exam, String status) {
+    if (status == 'submitted') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.check_circle, color: Colors.grey, size: 16),
+            SizedBox(width: 4),
+            Text('Submitted', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 13)),
+          ],
+        ),
+      );
+    }
+    
+    if (status == 'expired') {
+      return const SizedBox();
+    }
+    
+    if (status == 'not_started') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
+        child: const Text('Not Started', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12)),
+      );
+    }
+
+    return ElevatedButton(
+      onPressed: () {
+        print('STUDENT_DASH: Starting exam ${exam['code']}');
+        final validation = SupabaseService.validateExamWindow(exam);
+        _joinExam(exam['code'], timerData: validation);
+      },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.green,
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        elevation: 0,
+      ),
+      child: const Text('Start Exam'),
     );
   }
 
