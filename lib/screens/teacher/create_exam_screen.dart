@@ -20,6 +20,7 @@ class CreateExamScreen extends StatefulWidget {
 
 class _CreateExamScreenState extends State<CreateExamScreen> {
   final TextEditingController _contentController = TextEditingController();
+  final TextEditingController _titleController = TextEditingController();
   List<QuestionModel> _questions = [];
   bool _isLoading = false;
   int _questionCount = 5;
@@ -193,6 +194,14 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
 
   Future<void> _publishExam() async {
     debugPrint('PUBLISH_BTN: Publish button tapped');
+    
+    if (_titleController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter exam title')),
+      );
+      return;
+    }
+
     if (_questions.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Generate questions first')),
@@ -222,7 +231,7 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
     try {
       debugPrint('PUBLISH_BTN: Calling SupabaseService...');
       final code = await SupabaseService.publishExam(
-        title: 'Exam ${DateTime.now().toLocal().toString().substring(0, 16)}',
+        title: _titleController.text.trim(),
         questions: _questions,
         resultMode: _resultMode,
         timerMode: _timerMode,
@@ -267,6 +276,8 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              _buildTitleField(),
+              const SizedBox(height: 24),
               _buildPdfUploadSection(),
               const SizedBox(height: 16),
               const Row(
@@ -723,6 +734,29 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
             items: ['easy', 'medium', 'hard'],
             onChanged: (val) => setState(() => _difficulty = val!),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTitleField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Exam Title',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _titleController,
+          decoration: const InputDecoration(
+            hintText: 'e.g. Chapter 5 - Photosynthesis Test',
+            prefixIcon: Icon(Icons.title),
+            border: OutlineInputBorder(),
+          ),
+          textCapitalization: TextCapitalization.words,
+          maxLength: 100,
         ),
       ],
     );

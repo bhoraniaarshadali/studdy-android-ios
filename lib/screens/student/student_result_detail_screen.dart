@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../services/supabase_service.dart';
 import '../../models/question_model.dart';
+import '../../widgets/error_widget.dart';
+import '../../widgets/loading_widget.dart';
 
 class StudentResultDetailScreen extends StatefulWidget {
   final Map<String, dynamic> result;
@@ -20,6 +21,7 @@ class StudentResultDetailScreen extends StatefulWidget {
 class _StudentResultDetailScreenState extends State<StudentResultDetailScreen> {
   List<QuestionModel> _questions = [];
   bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -39,12 +41,16 @@ class _StudentResultDetailScreenState extends State<StudentResultDetailScreen> {
       setState(() {
         _questions = questionsRaw.map((q) => QuestionModel.fromJson(q as Map<String, dynamic>)).toList();
         _isLoading = false;
+        _errorMessage = null;
       });
       print('RESULT_DETAIL: Loaded ${_questions.length} questions');
     } catch (e) {
       print('RESULT_DETAIL: Error loading questions - $e');
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
       }
     }
   }
@@ -68,8 +74,10 @@ class _StudentResultDetailScreenState extends State<StudentResultDetailScreen> {
         elevation: 0,
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
+          ? const AppLoadingWidget(message: 'Loading details...')
+          : _errorMessage != null
+              ? AppErrorWidget(message: _errorMessage!, onRetry: _loadExamQuestions)
+              : SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

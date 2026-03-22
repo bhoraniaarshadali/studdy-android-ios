@@ -17,6 +17,7 @@ class StudentEntryScreen extends StatefulWidget {
 class _StudentEntryScreenState extends State<StudentEntryScreen> {
   final TextEditingController _codeController = TextEditingController();
   final TextEditingController _enrollmentController = TextEditingController();
+  final TextEditingController _nameController = TextEditingController();
   bool _isLoading = false;
   int _step = 1; // 1 = code entry, 2 = enrollment entry
   Map<String, dynamic>? _examData;
@@ -38,6 +39,7 @@ class _StudentEntryScreenState extends State<StudentEntryScreen> {
   void dispose() {
     _codeController.dispose();
     _enrollmentController.dispose();
+    _nameController.dispose();
     super.dispose();
   }
 
@@ -129,6 +131,15 @@ class _StudentEntryScreenState extends State<StudentEntryScreen> {
 
   Future<void> _checkEnrollment() async {
     final enrollment = _enrollmentController.text.trim();
+    final name = _nameController.text.trim();
+
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your name')),
+      );
+      return;
+    }
+
     if (enrollment.isEmpty || enrollment.length < 5) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid enrollment number')),
@@ -137,10 +148,14 @@ class _StudentEntryScreenState extends State<StudentEntryScreen> {
     }
 
     setState(() => _isLoading = true);
-    print('ENTRY: Checking enrollment: $enrollment');
+    print('ENTRY: Checking enrollment: $enrollment, name: $name');
 
     try {
-      final result = await SupabaseService.checkOrCreateStudent(enrollment);
+      final result = await SupabaseService.checkOrCreateStudent(enrollment, name: name);
+      
+      // Update name if student already existed but we want to ensure latest name
+      await SupabaseService.updateStudentName(enrollment, name);
+      
       final bool isNew = result['isNew'];
       
       if (isNew) {
@@ -416,6 +431,20 @@ class _StudentEntryScreenState extends State<StudentEntryScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const Text('Your Name', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _nameController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: InputDecoration(
+                    hintText: 'e.g. Arshad Ali',
+                    prefixIcon: const Icon(Icons.person_outline, color: Colors.blueAccent),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    filled: true,
+                    fillColor: Colors.grey.shade50,
+                  ),
+                ),
+                const SizedBox(height: 24),
                 const Text('Enrollment Number', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
                 const SizedBox(height: 12),
                 TextField(

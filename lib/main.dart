@@ -7,6 +7,13 @@ import 'screens/student/student_dashboard_screen.dart';
 void main() async {
   debugPrint('App: Studdy started');
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Global Flutter error handling
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    debugPrint('FATAL_ERROR: ${details.exception}');
+    debugPrint('STACK: ${details.stack}');
+  };
   
   await Supabase.initialize(
     url: 'https://odbycjunebfncpkkbbew.supabase.co',

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../services/supabase_service.dart';
 import 'create_exam_screen.dart';
 import 'exam_detail_screen.dart';
+import '../../widgets/error_widget.dart';
+import '../../widgets/loading_widget.dart';
 
 class TeacherDashboardScreen extends StatefulWidget {
   const TeacherDashboardScreen({super.key});
@@ -13,6 +15,7 @@ class TeacherDashboardScreen extends StatefulWidget {
 class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
   List<Map<String, dynamic>> _exams = [];
   bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -29,43 +32,16 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
       setState(() {
         _exams = result;
         _isLoading = false;
+        _errorMessage = null;
       });
       debugPrint('DASHBOARD: Loaded ${_exams.length} exams');
     } catch (e) {
       debugPrint('DASHBOARD: ERROR - $e');
       if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load exams: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _deleteExam(String code, String title) async {
-    try {
-      setState(() => _isLoading = true);
-      await SupabaseService.deleteExam(code);
-      print('DASHBOARD: Exam deleted: $code');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('"$title" deleted successfully'),
-            backgroundColor: Colors.green,
-          )
-        );
-      }
-      await _loadExams();
-    } catch (e) {
-      print('DASHBOARD: Delete ERROR - $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to delete exam: $e'),
-            backgroundColor: Colors.red,
-          )
-        );
-        setState(() => _isLoading = false);
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
       }
     }
   }
@@ -112,8 +88,10 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _exams.isEmpty
+          ? const AppLoadingWidget(message: 'Loading exams...')
+          : _errorMessage != null
+              ? AppErrorWidget(message: _errorMessage!, onRetry: _loadExams)
+              : _exams.isEmpty
               ? _buildEmptyState()
               : _buildMainContent(),
       floatingActionButton: FloatingActionButton(

@@ -4,6 +4,8 @@ import '../../services/supabase_service.dart';
 import '../../models/question_model.dart';
 import 'student_response_screen.dart';
 import 'dashboard_screen.dart';
+import '../../widgets/error_widget.dart';
+import '../../widgets/loading_widget.dart';
 
 class ExamDetailScreen extends StatefulWidget {
   final Map<String, dynamic> exam;
@@ -23,6 +25,7 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
   late bool _resultsPublished;
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -79,12 +82,16 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
         _results = result;
         _filteredResults = result;
         _isLoading = false;
+        _errorMessage = null;
       });
       debugPrint('DETAIL: Loaded ${_results.length} results');
       print('DETAIL: Filtered results reset to ${_results.length}');
     } catch (e) {
       debugPrint('DETAIL: ERROR - $e');
-      setState(() => _isLoading = false);
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoading = false;
+      });
     }
   }
 
@@ -100,7 +107,8 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
     setState(() {
       _filteredResults = _results.where((r) {
         final enrollment = r['enrollment_number'].toString().toLowerCase();
-        return enrollment.contains(q);
+        final name = (r['student_name'] ?? '').toString().toLowerCase();
+        return enrollment.contains(q) || name.contains(q);
       }).toList();
     });
     print('SEARCH: Query "$query" found ${_filteredResults.length} results');
@@ -272,30 +280,71 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
       body: RefreshIndicator(
         onRefresh: _loadResults,
         child: _isLoading && _results.isEmpty
-            ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildInfoCard(),
-                    const SizedBox(height: 24),
-                    if (_results.isNotEmpty) ...[
-                      _buildLeaderboardHeader(),
-                      const SizedBox(height: 16),
-                      if (_filteredResults.isEmpty && _searchController.text.isNotEmpty)
-                        _buildEmptyState()
-                      else
-                        ...List.generate(_filteredResults.length, (index) {
-                          return _buildResultCard(_filteredResults[index], index);
-                        }),
-                    ] else
-                      _buildEmptyState(),
-                  ],
-                ),
-              ),
+            ? const AppLoadingWidget(message: 'Loading exam results...')
+            : _errorMessage != null
+                ? AppErrorWidget(message: _errorMessage!, onRetry: _loadResults)
+                : DefaultTabController(
+                    length: 2,
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: _buildInfoCard(),
+                        ),
+                        const TabBar(
+                          tabs: [
+                            Tab(text: 'Leaderboard', icon: Icon(Icons.leaderboard_outlined)),
+                            Tab(text: 'Proctoring Report', icon: Icon(Icons.security_outlined)),
+                          ],
+                          labelColor: Colors.blueAccent,
+                          indicatorColor: Colors.blueAccent,
+                        ),
+                        Expanded(
+                          child: TabBarView(
+                            children: [
+                              _buildLeaderboardTab(),
+                              _buildProctoringTab(),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
       ),
+    );
+  }
+
+  Widget _buildLeaderboardTab() {
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        children: [
+          _buildLeaderboardHeader(),
+          const SizedBox(height: 16),
+          if (_results.isNotEmpty) ...[
+            if (_filteredResults.isEmpty && _searchController.text.isNotEmpty)
+              _buildEmptyState()
+            else
+              ...List.generate(_filteredResults.length, (index) {
+                return _buildResultCard(_filteredResults[index], index);
+              }),
+          ] else
+            _buildEmptyState(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProctoringTab() {
+    if (_results.isEmpty) return _buildEmptyState();
+    
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _results.length,
+      itemBuilder: (context, index) {
+        return _buildProctoringCard(_results[index]);
+      },
     );
   }
 
@@ -448,7 +497,7 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
                 autofocus: true,
                 style: const TextStyle(fontSize: 14),
                 decoration: InputDecoration(
-                  hintText: 'Search by enrollment...',
+                  hintText: 'Search by enrollment or name...',
                   prefixIcon: const Icon(Icons.search, size: 20, color: Colors.grey),
                   suffixIcon: IconButton(
                     icon: const Icon(Icons.close, size: 20, color: Colors.grey),
@@ -548,13 +597,18 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      result['enrollment_number'] ?? 'Unknown',
+                      name,
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
+                    Text(
+                      result['enrollment_number'] ?? 'Unknown',
+                      style: const TextStyle(fontSize: 11, color: Colors.blueAccent, fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 2),
                     Text(
                       time,
-                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      style: const TextStyle(fontSize: 10, color: Colors.grey),
                     ),
                   ],
                 ),
@@ -756,8 +810,12 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  result['enrollment_number'] ?? 'Unknown',
+                  result['student_name'] ?? result['enrollment_number'] ?? 'Unknown',
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                Text(
+                  result['enrollment_number'] ?? '',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
                 ),
                 const SizedBox(height: 4),
                 Row(

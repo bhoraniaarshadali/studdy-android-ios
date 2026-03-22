@@ -5,7 +5,9 @@ import 'qr_scan_screen.dart';
 import '../../services/supabase_service.dart';
 import 'exam_screen.dart';
 import '../auth/login_screen.dart';
-import 'student_result_detail_screen.dart';
+import 'my_results_screen.dart';
+import '../../widgets/error_widget.dart';
+import '../../widgets/loading_widget.dart';
 
 class StudentDashboardScreen extends StatefulWidget {
   final String enrollmentNumber;
@@ -30,6 +32,7 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
   List<Map<String, dynamic>> _upcomingExams = [];
   bool _isLoading = true;
   Map<String, dynamic>? _studentData;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -66,13 +69,17 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
         _myResults = results;
         _upcomingExams = upcoming;
         _isLoading = false;
+        _errorMessage = null;
       });
       print('STUDENT_DASH: Loaded - results: ${_myResults.length}, total_exams: ${_upcomingExams.length}');
       _myResults.forEach((r) => print('DASH_RESULT: exam_code="${r['exam_code']}"'));
     } catch (e) {
       print('STUDENT_DASH: ERROR - $e');
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
       }
     }
   }
@@ -165,12 +172,14 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('My Dashboard', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            if (_studentData != null)
-              Text(
-                widget.enrollmentNumber,
-                style: const TextStyle(fontSize: 12, color: Colors.blueAccent),
-              ),
+            Text(
+              _studentData?['name'] != null ? 'Welcome, ${_studentData!['name']}' : 'My Dashboard',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            Text(
+              widget.enrollmentNumber,
+              style: const TextStyle(fontSize: 12, color: Colors.blueAccent),
+            ),
           ],
         ),
         centerTitle: false,
@@ -198,22 +207,17 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
         ],
       ),
       body: _isLoading 
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Loading your dashboard...', style: TextStyle(color: Colors.grey)),
-                ],
-              ),
-            )
-          : SingleChildScrollView(
+          ? const AppLoadingWidget(message: 'Loading your dashboard...')
+          : _errorMessage != null
+              ? AppErrorWidget(message: _errorMessage!, onRetry: _loadData)
+              : SingleChildScrollView(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (widget.isNew) _buildWelcomeBanner() else _buildStatsRow(),
+                  const SizedBox(height: 24),
+                  _buildResultsCard(),
                   const SizedBox(height: 24),
                   _buildSectionHeader(
                     'Upcoming Exams', 
@@ -231,12 +235,60 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
                   const SizedBox(height: 12),
                   _buildUpcomingSection(),
                   const SizedBox(height: 24),
-                  _buildSectionHeader('My Results', Icons.emoji_events_outlined),
-                  const SizedBox(height: 12),
-                  _buildResultsSection(),
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _buildResultsCard() {
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => MyResultsScreen(enrollmentNumber: widget.enrollmentNumber),
+        ),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.purple.shade400, Colors.purple.shade700],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.purple.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.emoji_events_outlined, color: Colors.white, size: 32),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'My Results',
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    '${_myResults.length} exams completed',
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 16),
+          ],
+        ),
+      ),
     );
   }
 
@@ -252,9 +304,9 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Welcome to Studdy!',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
+          Text(
+            _studentData?['name'] != null ? 'Welcome, ${_studentData!['name']}!' : 'Welcome to Studdy!',
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
           ),
           const SizedBox(height: 8),
           Text(
@@ -451,144 +503,5 @@ class _StudentDashboardScreenState extends State<StudentDashboardScreen> {
     );
   }
 
-  Widget _buildSubmittedBadge(String code) {
-    print('STUDENT_DASH: Exam $code already submitted');
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.check_circle_outline, color: Colors.grey, size: 16),
-          SizedBox(width: 4),
-          Text('Submitted', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold, fontSize: 13)),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildResultsSection() {
-    if (_myResults.isEmpty) {
-      return Card(
-        elevation: 0,
-        color: Colors.grey.shade100,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: const Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Center(child: Text('You haven\'t taken any exams yet', style: TextStyle(color: Colors.grey))),
-        ),
-      );
-    }
-
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: _myResults.length,
-      itemBuilder: (context, index) {
-        final result = _myResults[index];
-        final bool isPublished = result['results_published'] == true || result['result_mode'] == 'instant';
-        final int score = result['score'] ?? 0;
-        final int total = result['total'] ?? 0;
-        final int percentage = total > 0 ? (score / total * 100).toInt() : 0;
-
-        Color scoreColor = Colors.red;
-        if (percentage >= 60) scoreColor = Colors.green;
-        else if (percentage >= 40) scoreColor = Colors.orange;
-
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey.shade200),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(result['exam_title'] ?? 'Unknown Exam', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(4)),
-                            child: Text(result['exam_code'] ?? '----', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.grey)),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(result['created_at'].toString().substring(0, 10), style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                if (isPublished)
-                  _buildPublishedScore(result, score, total, percentage, scoreColor)
-                else
-                  _buildPendingBadge(),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildPublishedScore(Map<String, dynamic> result, int score, int total, int percentage, Color scoreColor) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text('$score / $total', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: scoreColor)),
-        const SizedBox(height: 4),
-        SizedBox(
-          height: 28,
-          child: TextButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => StudentResultDetailScreen(
-                    result: result,
-                    examTitle: result['exam_title'] ?? 'Exam Detail',
-                  ),
-                ),
-              );
-            },
-            style: TextButton.styleFrom(padding: EdgeInsets.zero),
-            child: const Text('View Details', style: TextStyle(fontSize: 12)),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPendingBadge() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(6)),
-          child: const Text('Pending', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 11)),
-        ),
-        const SizedBox(height: 4),
-        const Text('Manual Review', style: TextStyle(fontSize: 10, color: Colors.grey)),
-        SizedBox(
-          height: 28,
-          child: TextButton(
-            onPressed: _loadData,
-            style: TextButton.styleFrom(padding: EdgeInsets.zero),
-            child: const Text('Check Again', style: TextStyle(fontSize: 11, color: Colors.blueAccent)),
-          ),
-        ),
-      ],
-    );
-  }
 }

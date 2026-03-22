@@ -108,14 +108,35 @@ class SupabaseService {
   static Future<List<Map<String, dynamic>>> getExamResults(String examCode) async {
     try {
       debugPrint('EXAM_RESULTS: Fetching results for $examCode');
-      final results = await _client
+      final List<dynamic> resultsRaw = await _client
           .from('results')
           .select()
           .eq('exam_code', examCode)
           .order('score', ascending: false);
       
-      debugPrint('EXAM_RESULTS: Fetched ${(results as List).length} results for $examCode');
-      return List<Map<String, dynamic>>.from(results);
+      final List<Map<String, dynamic>> enrichedResults = [];
+      
+      for (var res in resultsRaw) {
+        final Map<String, dynamic> result = Map<String, dynamic>.from(res);
+        try {
+          // Fetch student name for this result
+          final student = await _client
+              .from('students')
+              .select('name')
+              .eq('enrollment_number', result['enrollment_number'])
+              .single();
+          
+          result['student_name'] = student['name'] ?? result['enrollment_number'];
+          print('RESULTS: Student name: ${result['student_name']}');
+        } catch (e) {
+          debugPrint('RESULTS: Could not fetch student name for ${result['enrollment_number']}');
+          result['student_name'] = result['enrollment_number'];
+        }
+        enrichedResults.add(result);
+      }
+      
+      debugPrint('EXAM_RESULTS: Fetched ${enrichedResults.length} enriched results for $examCode');
+      return enrichedResults;
     } catch (e) {
       debugPrint('EXAM_RESULTS: ERROR - $e');
       throw Exception('Failed to fetch results: $e');
@@ -163,12 +184,12 @@ class SupabaseService {
   }
 
   // Check if student exists or create new one
-  static Future<Map<String, dynamic>> checkOrCreateStudent(String enrollmentNumber) async {
+  static Future<Map<String, dynamic>> checkOrCreateStudent(String enrollmentNumber, {String? name}) async {
     try {
       // 1. Check if exists
       final response = await _client
           .from('students')
-          .select()
+          .select('*')
           .eq('enrollment_number', enrollmentNumber)
           .single();
       
@@ -178,13 +199,16 @@ class SupabaseService {
       // 2. Student not found, create new
       try {
         print('STUDENT: Student not found, creating new: $enrollmentNumber');
+        final Map<String, dynamic> data = {'enrollment_number': enrollmentNumber};
+        if (name != null) data['name'] = name;
+        
         final newStudent = await _client
             .from('students')
-            .insert({'enrollment_number': enrollmentNumber})
-            .select()
+            .insert(data)
+            .select('*')
             .single();
         
-        print('STUDENT: New student created: $enrollmentNumber');
+        print('STUDENT: New student created: $enrollmentNumber, name: $name');
         return {'isNew': true, 'student': newStudent};
       } catch (insertError) {
         print('STUDENT: Create ERROR - $insertError');
@@ -193,12 +217,25 @@ class SupabaseService {
     }
   }
 
+  // Update student name
+  static Future<void> updateStudentName(String enrollmentNumber, String name) async {
+    try {
+      await _client
+          .from('students')
+          .update({'name': name})
+          .eq('enrollment_number', enrollmentNumber);
+      print('STUDENT: Name updated: $name');
+    } catch (e) {
+      print('STUDENT: Name update ERROR - $e');
+    }
+  }
+
   // Get student info by enrollment
   static Future<Map<String, dynamic>?> getStudentByEnrollment(String enrollmentNumber) async {
     try {
       final response = await _client
           .from('students')
-          .select()
+          .select('*')
           .eq('enrollment_number', enrollmentNumber)
           .single();
       
