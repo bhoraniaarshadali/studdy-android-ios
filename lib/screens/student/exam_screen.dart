@@ -113,7 +113,7 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
         timer.cancel();
         if (mounted) {
           setState(() => _timerExpired = true);
-          print('TIMER: Time up! Auto提交...');
+          print('TIMER: Time up! Submitting exam...');
           _autoSubmit();
         }
       } else {
@@ -149,21 +149,6 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
     });
   }
 
-  Future<void> _autoSubmit() async {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Time up! Submitting exam...'),
-          backgroundColor: Colors.red,
-        )
-      );
-    }
-    print('TIMER: Auto submit triggered');
-    await Future.delayed(const Duration(seconds: 2));
-    if (mounted && !_examSubmitted) {
-      _submitExam();
-    }
-  }
 
   String _formatTime(int seconds) {
     final h = seconds ~/ 3600;
@@ -249,7 +234,7 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
     );
     
     if (_warningCount >= 3) {
-      _showMaxWarningDialog();
+      _showTerminationDialog();
     }
   }
 
@@ -258,77 +243,120 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
     if (_examSubmitted) return;
     
     if (state == AppLifecycleState.paused || 
-        state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden) {
-      
-      setState(() => _appSwitchCount++);
-      print('ANTICHEAT: App switched/paused! Count: $_appSwitchCount');
-      
-      // Re-enable fullscreen when coming back
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+        state == AppLifecycleState.inactive) {
+      print('ANTICHEAT: App went to background');
+      // Just track, dont do anything yet
     }
     
     if (state == AppLifecycleState.resumed) {
-      // App came back - show warning
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-      print('ANTICHEAT: App resumed, count: $_appSwitchCount');
+      // App came back from background
+      setState(() => _appSwitchCount++);
+      print('ANTICHEAT: App resumed from background. Switch count: $_appSwitchCount');
       
-      if (_appSwitchCount > 0 && !_examSubmitted) {
-        setState(() => _warningCount++);
-        _showAppSwitchWarning();
-      }
+      // Re-enable fullscreen
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      
+      // Now show warning based on count
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_examSubmitted) _handleAppSwitch();
+      });
     }
   }
 
-  void _showAppSwitchWarning() {
+  void _handleAppSwitch() {
+    if (_examSubmitted) return;
+    
+    setState(() => _warningCount++);
+    print('ANTICHEAT: Handling switch - warning $_warningCount of 3');
+    
+    if (_warningCount == 1) {
+      _showWarningDialog(
+        title: 'Warning 1 of 3',
+        message: 'You left the exam screen!\n\nPlease stay on this screen during the exam.',
+        icon: Icons.warning_amber,
+        iconColor: Colors.orange,
+        buttonText: 'Continue Exam',
+        buttonColor: Colors.orange,
+        onContinue: () {},
+      );
+    } else if (_warningCount == 2) {
+      _showWarningDialog(
+        title: 'Warning 2 of 3 — Last Warning!',
+        message: 'You left the exam screen again!\n\nOne more violation will terminate your exam.',
+        icon: Icons.warning_amber,
+        iconColor: Colors.deepOrange,
+        buttonText: 'I Understand',
+        buttonColor: Colors.deepOrange,
+        onContinue: () {},
+      );
+    } else if (_warningCount >= 3) {
+      _showTerminationDialog();
+    }
+  }
+
+  void _showWarningDialog({
+    required String title,
+    required String message,
+    required IconData icon,
+    required Color iconColor,
+    required String buttonText,
+    required Color buttonColor,
+    required VoidCallback onContinue,
+  }) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
-        title: const Row(children: [
-          Icon(Icons.warning_amber, color: Colors.orange, size: 28),
-          SizedBox(width: 8),
-          Text('Warning!'),
+        title: Row(children: [
+          Icon(icon, color: iconColor, size: 28),
+          const SizedBox(width: 8),
+          Expanded(child: Text(title, style: const TextStyle(fontSize: 16))),
         ]),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('You switched away from the exam!'),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                'Warning $_warningCount of 3\nAfter 3 warnings, exam will be auto-submitted.',
-                style: TextStyle(color: Colors.orange.shade800, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            // Warning progress bar
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(3, (i) => Container(
+                width: 60,
+                height: 6,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                decoration: BoxDecoration(
+                  color: i < _warningCount ? Colors.red : Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              )),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '$_warningCount / 3 warnings',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
         ),
         actions: [
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: buttonColor,
+              minimumSize: const Size(double.infinity, 44),
+            ),
             onPressed: () {
               Navigator.pop(context);
               SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-              print('ANTICHEAT: Warning acknowledged');
+              onContinue();
+              print('ANTICHEAT: Warning dialog dismissed');
             },
-            child: const Text('Continue Exam', style: TextStyle(color: Colors.white)),
+            child: Text(buttonText, style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
-    
-    if (_warningCount >= 3) {
-      _showMaxWarningDialog();
-    }
   }
 
-  void _showMaxWarningDialog() {
+  void _showTerminationDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -341,35 +369,74 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('You have received 3 warnings.'),
-            const SizedBox(height: 8),
+            // All 3 warning bars filled red
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(3, (i) => Container(
+                width: 60,
+                height: 6,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              )),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '3 / 3 warnings',
+              style: TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.red.shade50,
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.shade200),
               ),
-              child: Text(
-                'Your exam is being auto-submitted due to suspicious activity.',
-                style: TextStyle(color: Colors.red.shade800),
-                textAlign: TextAlign.center,
+              child: Column(
+                children: [
+                  const Text(
+                    'You have left the exam screen 3 times.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Your exam is being automatically submitted with current answers.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.red.shade700, fontSize: 13),
+                  ),
+                ],
               ),
             ),
           ],
         ),
         actions: [
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              minimumSize: const Size(double.infinity, 44),
+            ),
             onPressed: () {
               Navigator.pop(context);
-              print('ANTICHEAT: Max warnings reached - auto submitting');
-              _submitExam();
+              print('ANTICHEAT: Termination confirmed - auto submitting');
+              _autoSubmit();
             },
-            child: const Text('Submit Exam', style: TextStyle(color: Colors.white)),
+            child: const Text('Submit Exam Now', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
+  }
+
+  void _autoSubmit() async {
+    print('ANTICHEAT: _autoSubmit() called - submitting exam now');
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!_examSubmitted && mounted) {
+      _submitExam();
+    }
   }
 
   Future<void> _submitExam() async {
@@ -542,25 +609,26 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
                           style: const TextStyle(fontSize: 11, color: Colors.grey),
                         ),
                         const Spacer(),
-                        // Warning count
-                        if (_warningCount > 0)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.orange,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            'Warnings: $_warningCount/3',
-                            style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
-                          ),
+                        // 3 warning dots
+                        Row(
+                          children: List.generate(3, (i) => Container(
+                            width: 10,
+                            height: 10,
+                            margin: const EdgeInsets.symmetric(horizontal: 2),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: i < _warningCount ? Colors.red : Colors.grey.shade300,
+                            ),
+                          )),
                         ),
-                        const SizedBox(width: 8),
-                        // App switch count
-                        if (_appSwitchCount > 0)
+                        const SizedBox(width: 6),
                         Text(
-                          'Switches: $_appSwitchCount',
-                          style: const TextStyle(fontSize: 11, color: Colors.red),
+                          '$_warningCount/3',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: _warningCount > 0 ? Colors.red : Colors.grey,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ],
                     ),

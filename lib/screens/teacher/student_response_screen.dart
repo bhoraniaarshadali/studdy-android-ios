@@ -50,6 +50,7 @@ class StudentResponseScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _buildProctoringCard(),
             _buildSummaryCard(enrollment, percentage, score, total),
             const SizedBox(height: 24),
             const Row(
@@ -66,6 +67,143 @@ class StudentResponseScreen extends StatelessWidget {
             ...List.generate(questions.length, (i) => _buildQuestionReview(i)),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildProctoringCard() {
+    final warnings = (result['warnings'] ?? 0) as int;
+    final switches = (result['app_switches'] ?? 0) as int;
+    final total = warnings + switches;
+
+    print('PROCTOR_DETAIL: ${result['enrollment_number']} - warnings: $warnings, switches: $switches, risk: ${total == 0 ? 'Clean' : total <= 2 ? 'Suspicious' : 'High Risk'}');
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: total == 0 ? Colors.green.shade50 : 
+               total <= 2 ? Colors.orange.shade50 : Colors.red.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: total == 0 ? Colors.green.shade200 :
+                 total <= 2 ? Colors.orange.shade200 : Colors.red.shade200,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                total == 0 ? Icons.verified_user :
+                total <= 2 ? Icons.warning_amber : Icons.gpp_bad,
+                color: total == 0 ? Colors.green :
+                       total <= 2 ? Colors.orange : Colors.red,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Proctoring Report',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: total == 0 ? Colors.green :
+                         total <= 2 ? Colors.orange : Colors.red,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  total == 0 ? 'Clean' :
+                  total <= 2 ? 'Suspicious' : 'High Risk',
+                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.warning_amber, color: Colors.orange, size: 20),
+                      const SizedBox(height: 4),
+                      Text('$warnings', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      const Text('Warnings', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.swap_horiz, color: Colors.blue, size: 20),
+                      const SizedBox(height: 4),
+                      Text('$switches', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      const Text('App Switches', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.assessment, color: Colors.purple, size: 20),
+                      const SizedBox(height: 4),
+                      Text('$total', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      const Text('Total Events', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          // Warning progress bar
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Text('Risk level:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: (total / 6).clamp(0.0, 1.0),
+                    backgroundColor: Colors.grey.shade200,
+                    valueColor: AlwaysStoppedAnimation(
+                      total == 0 ? Colors.green :
+                      total <= 2 ? Colors.orange : Colors.red,
+                    ),
+                    minHeight: 6,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

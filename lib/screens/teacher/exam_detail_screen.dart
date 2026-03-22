@@ -290,21 +290,6 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
                         ...List.generate(_filteredResults.length, (index) {
                           return _buildResultCard(_filteredResults[index], index);
                         }),
-                      
-                      const SizedBox(height: 32),
-                      // SECTION 3 — Proctoring Report
-                      const Row(
-                        children: [
-                          Icon(Icons.security_rounded, color: Colors.blueAccent, size: 24),
-                          SizedBox(width: 8),
-                          Text(
-                            'Proctoring Report',
-                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      ..._results.map((result) => _buildProctoringCard(result)),
                     ] else
                       _buildEmptyState(),
                   ],
