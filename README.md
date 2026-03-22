@@ -17,6 +17,9 @@ An AI-powered exam platform for teachers and students. Teachers can create exams
 - **Teacher Dashboard** — View all exams, student count, timer status
 - **Exam Detail** — Leaderboard, publish results, per-student response review
 - **Student Response Viewer** — See exactly which option each student selected
+- **Exam Delete** — Delete exam and all student results permanently
+- **Student Search** — Search students by enrollment number in exam detail
+- **Proctoring Report** — Per-student risk report (Clean/Suspicious/High Risk)
 
 ### Student Side
 - **Flexible Join** — Enter exam code manually or scan QR code
@@ -28,7 +31,10 @@ An AI-powered exam platform for teachers and students. Teachers can create exams
 - **Timer Warnings** — Alerts at 5 minutes and 1 minute remaining
 - **Result Review** — Detailed answer review showing correct/wrong per question
 - **Submitted Exam Block** — Cannot attempt same exam twice
-- **Persistent Login** — Stay logged in until manual logout (coming soon)
+- **Persistent Login** — Stay logged in until manual logout (shared_preferences)
+- **Anti-Cheat Proctoring** — Full proctoring system during exam
+- **Live Camera Preview** — Front camera monitoring shown during exam
+- **3-Strike Warning System** — 3 app switches = exam auto-terminated
 
 ---
 
@@ -47,6 +53,9 @@ An AI-powered exam platform for teachers and students. Teachers can create exams
 | Screenshot | screenshot |
 | Share | share_plus |
 | Local Storage | shared_preferences |
+| Camera | camera (Flutter) |
+| Wakelock | wakelock_plus |
+| Screenshot Block | no_screenshot |
 
 ---
 
@@ -76,6 +85,8 @@ An AI-powered exam platform for teachers and students. Teachers can create exams
 | score | int4 | Correct answers count |
 | total | int4 | Total questions |
 | answers | jsonb | Student's selected answers |
+| warnings | int4 | Warning count during exam |
+| app_switches | int4 | App switch count during exam |
 | created_at | timestamptz | Submission timestamp |
 
 ### students
@@ -109,8 +120,9 @@ An AI-powered exam platform for teachers and students. Teachers can create exams
 4. Auto-detected: new or existing student
 5. Dashboard shows upcoming + past exams
 6. Start exam → Answer MCQs
-7. Submit (or auto-submit on timeout)
-8. View result (instant or wait for teacher)
+7. Anti-cheat monitoring active during exam (camera + app switch detection)
+8. Submit (or auto-submit on timeout/warnings)
+9. View result (instant or wait for teacher)
 
 ---
 
@@ -140,16 +152,38 @@ An AI-powered exam platform for teachers and students. Teachers can create exams
 
 ## 📋 Roadmap
 
-- [ ] Persistent login (shared_preferences)
-- [ ] Anti-cheat (fullscreen lock, tab switch detection)
+- [x] Persistent login (shared_preferences)
+- [x] Anti-cheat (fullscreen lock, tab switch detection, camera proctoring)
 - [ ] Teacher auth (proper login/signup)
 - [ ] Export results (PDF/Excel)
 - [ ] Push notifications (exam reminders)
 - [ ] Dark mode
 - [ ] Multiple teachers support
 - [ ] Question bank
+- [ ] Face detection (ML Kit integration)
+- [ ] Web platform full support
 
 ---
+
+## 🔒 Anti-Cheat System
+
+Studdy includes a comprehensive proctoring system:
+
+| Feature | Description |
+|---|---|
+| Fullscreen Lock | System bars hidden during exam |
+| Screenshot Block | Screen capture disabled (Android) |
+| Back Button Disable | Navigation blocked during exam |
+| Copy Paste Disable | Text selection disabled on questions |
+| App Switch Detection | 3-strike warning system |
+| Live Camera Preview | Front camera shown to student |
+| Auto Submit | Exam submits on 3rd warning |
+| Proctoring Report | Teacher sees risk level per student |
+
+### Warning System
+- **Warning 1** — "You left the exam screen" dialog
+- **Warning 2** — "Last warning!" dialog  
+- **Warning 3** — Exam terminated + auto submitted
 
 ## 👨💻 Developer
 
