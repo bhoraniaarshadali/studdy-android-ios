@@ -21,9 +21,11 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
   }
 
   Future<void> _loadExams() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final result = await SupabaseService.getTeacherExams();
+      if (!mounted) return;
       setState(() {
         _exams = result;
         _isLoading = false;
@@ -31,11 +33,39 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
       debugPrint('DASHBOARD: Loaded ${_exams.length} exams');
     } catch (e) {
       debugPrint('DASHBOARD: ERROR - $e');
-      setState(() => _isLoading = false);
       if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load exams: $e')),
         );
+      }
+    }
+  }
+
+  Future<void> _deleteExam(String code, String title) async {
+    try {
+      setState(() => _isLoading = true);
+      await SupabaseService.deleteExam(code);
+      print('DASHBOARD: Exam deleted: $code');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"$title" deleted successfully'),
+            backgroundColor: Colors.green,
+          )
+        );
+      }
+      await _loadExams();
+    } catch (e) {
+      print('DASHBOARD: Delete ERROR - $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete exam: $e'),
+            backgroundColor: Colors.red,
+          )
+        );
+        setState(() => _isLoading = false);
       }
     }
   }

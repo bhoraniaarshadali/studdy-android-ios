@@ -316,7 +316,7 @@ class _StudentEntryScreenState extends State<StudentEntryScreen> {
               ],
             ),
           ),
-        ),
+        ),  
         if (!kIsWeb) const SizedBox(height: 24),
         if (!kIsWeb)
           const Row(

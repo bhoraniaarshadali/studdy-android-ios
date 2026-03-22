@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/supabase_service.dart';
 import '../../models/question_model.dart';
 import 'student_response_screen.dart';
+import 'dashboard_screen.dart';
 
 class ExamDetailScreen extends StatefulWidget {
   final Map<String, dynamic> exam;
@@ -15,10 +16,13 @@ class ExamDetailScreen extends StatefulWidget {
 
 class _ExamDetailScreenState extends State<ExamDetailScreen> {
   List<Map<String, dynamic>> _results = [];
+  List<Map<String, dynamic>> _filteredResults = [];
   List<QuestionModel> _questions = [];
   bool _isLoading = true;
   bool _isPublishing = false;
   late bool _resultsPublished;
+  bool _isSearching = false;
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
@@ -40,6 +44,12 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
     debugPrint('DETAIL: Screen opened for exam: ${widget.exam['code']}');
     debugPrint('DETAIL: Result mode: ${widget.exam['result_mode']}');
     debugPrint('DETAIL: Results published: $_resultsPublished');
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadResults() async {
@@ -67,13 +77,33 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
       final result = await SupabaseService.getExamResults(widget.exam['code']);
       setState(() {
         _results = result;
+        _filteredResults = result;
         _isLoading = false;
       });
       debugPrint('DETAIL: Loaded ${_results.length} results');
+      print('DETAIL: Filtered results reset to ${_results.length}');
     } catch (e) {
       debugPrint('DETAIL: ERROR - $e');
       setState(() => _isLoading = false);
     }
+  }
+
+  void _onSearchChanged(String query) {
+    print('SEARCH: Searching for: $query');
+    if (query.isEmpty) {
+      setState(() => _filteredResults = _results);
+      print('SEARCH: Query empty, showing all ${_results.length} results');
+      return;
+    }
+
+    final q = query.toLowerCase().trim();
+    setState(() {
+      _filteredResults = _results.where((r) {
+        final enrollment = r['enrollment_number'].toString().toLowerCase();
+        return enrollment.contains(q);
+      }).toList();
+    });
+    print('SEARCH: Query "$query" found ${_filteredResults.length} results');
   }
 
   Future<void> _publishResults() async {
@@ -152,6 +182,92 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.red),
+            onPressed: () {
+              print('DELETE: Confirmation shown for exam: $code');
+              showDialog(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: Row(
+                    children: [
+                      const Icon(Icons.warning_amber, color: Colors.red),
+                      const SizedBox(width: 8),
+                      const Text('Delete Exam?'),
+                    ]
+                  ),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Are you sure you want to delete this exam?'),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text('Code: $code', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                            Text('Results: ${_results.length}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'This will permanently delete the exam and all student results. This cannot be undone.',
+                        style: TextStyle(color: Colors.red, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        print('DELETE: User cancelled deletion');
+                        Navigator.pop(context);
+                      },
+                      child: const Text('Cancel'),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                      onPressed: () async {
+                        print('DELETE: User confirmed deletion');
+                        Navigator.pop(context);
+                        try {
+                          await SupabaseService.deleteExam(code);
+                          print('DETAIL: Exam deleted, returning to dashboard');
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('"$title" deleted successfully'), backgroundColor: Colors.green),
+                            );
+                            Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(builder: (_) => const TeacherDashboardScreen()),
+                              (route) => false,
+                            );
+                          }
+                        } catch (e) {
+                          print('DETAIL: Delete ERROR - $e');
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Failed to delete: $e'), backgroundColor: Colors.red),
+                            );
+                          }
+                        }
+                      },
+                      child: const Text('Delete', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                ),
+              );
+            },
+            tooltip: 'Delete Exam',
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _loadResults,
@@ -168,9 +284,12 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
                     if (_results.isNotEmpty) ...[
                       _buildLeaderboardHeader(),
                       const SizedBox(height: 16),
-                      ...List.generate(_results.length, (index) {
-                        return _buildResultCard(_results[index], index);
-                      }),
+                      if (_filteredResults.isEmpty && _searchController.text.isNotEmpty)
+                        _buildEmptyState()
+                      else
+                        ...List.generate(_filteredResults.length, (index) {
+                          return _buildResultCard(_filteredResults[index], index);
+                        }),
                     ] else
                       _buildEmptyState(),
                   ],
@@ -302,14 +421,67 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
   }
 
   Widget _buildLeaderboardHeader() {
-    return const Row(
+    return Row(
       children: [
-        Icon(Icons.emoji_events_outlined, color: Colors.amber, size: 24),
-        const SizedBox(width: 8),
-        Text(
-          'Leaderboard',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
+        if (!_isSearching) ...[
+          const Icon(Icons.emoji_events_outlined, color: Colors.amber, size: 24),
+          const SizedBox(width: 8),
+          const Text(
+            'Leaderboard',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.search, color: Colors.grey),
+            onPressed: () {
+              print('SEARCH: Search bar opened');
+              setState(() => _isSearching = true);
+            },
+            tooltip: 'Search',
+          ),
+        ] else ...[
+          Expanded(
+            child: Container(
+              height: 44,
+              child: TextField(
+                controller: _searchController,
+                autofocus: true,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Search by enrollment...',
+                  prefixIcon: const Icon(Icons.search, size: 20, color: Colors.grey),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.close, size: 20, color: Colors.grey),
+                    onPressed: () {
+                      print('SEARCH: Search bar closed');
+                      setState(() {
+                        _isSearching = false;
+                        _searchController.clear();
+                        _filteredResults = _results;
+                      });
+                    },
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  fillColor: Colors.white,
+                  filled: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.blueAccent),
+                  ),
+                ),
+                onChanged: _onSearchChanged,
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -408,6 +580,28 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
   }
 
   Widget _buildEmptyState() {
+    final isSearching = _searchController.text.isNotEmpty;
+    
+    if (isSearching && _filteredResults.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.only(top: 40.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.search_off, size: 48, color: Colors.grey),
+              const SizedBox(height: 12),
+              const Text('No student found', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+              Text(
+                'No results for "${_searchController.text}"',
+                style: const TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.only(top: 60.0),

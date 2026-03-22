@@ -226,6 +226,30 @@ class SupabaseService {
     }
   }
 
+  // Delete exam and all associated results
+  static Future<void> deleteExam(String examCode) async {
+    try {
+      debugPrint('DELETE: Starting deletion for exam: $examCode');
+      
+      // 1. First delete all results for this exam
+      await _client
+          .from('results')
+          .delete()
+          .eq('exam_code', examCode);
+      debugPrint('DELETE: Deleted results for exam: $examCode');
+      
+      // 2. Then delete the exam itself
+      await _client
+          .from('exams')
+          .delete()
+          .eq('code', examCode);
+      debugPrint('DELETE: Exam deleted successfully: $examCode');
+    } catch (e) {
+      debugPrint('DELETE: ERROR deleting exam $examCode - $e');
+      throw Exception('Failed to delete exam: $e');
+    }
+  }
+
   // Check if results are published for an exam
   static Future<bool> checkResultsPublished(String examCode) async {
     try {
