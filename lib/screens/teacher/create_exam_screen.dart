@@ -3,8 +3,11 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart';
 import '../../models/question_model.dart';
 import '../../services/kie_ai_service.dart';
+import '../../services/supabase_service.dart';
+import 'review_questions_screen.dart';
 
 class CreateExamScreen extends StatefulWidget {
   const CreateExamScreen({super.key});
@@ -25,11 +28,14 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
   String? _pdfFileName;
   Uint8List? _pdfBytes;
   String _statusText = '';
+  bool _isPublishing = false;
+  String? _publishedCode;
+  String _resultMode = 'instant'; // 'instant' or 'manual'
 
   Future<void> _pickPDF() async {
-    print('PDF_PICK: Button tapped');
+    debugPrint('PDF_PICK: Button tapped');
     try {
-      print('PDF_PICK: FilePicker opened');
+      debugPrint('PDF_PICK: FilePicker opened');
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf'],
@@ -41,26 +47,26 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
           _pdfFileName = result.files.single.name;
           _pdfBytes = result.files.single.bytes;
         });
-        print('PDF_PICK: File selected - name: $_pdfFileName, bytes: ${_pdfBytes?.length}');
+        debugPrint('PDF_PICK: File selected - name: $_pdfFileName, bytes: ${_pdfBytes?.length}');
       } else {
-        print('PDF_PICK: No file selected, user cancelled');
+        debugPrint('PDF_PICK: No file selected, user cancelled');
       }
     } catch (e) {
-      print('PDF_PICK: ERROR - $e');
+      debugPrint('PDF_PICK: ERROR - $e');
     }
   }
 
   Future<String> _extractTextFromPDF() async {
     if (_pdfBytes == null) return '';
 
-    print('PDF_EXTRACT: Starting extraction');
-    print('PDF_EXTRACT: PDF bytes size: ${_pdfBytes?.length}');
+    debugPrint('PDF_EXTRACT: Starting extraction');
+    debugPrint('PDF_EXTRACT: PDF bytes size: ${_pdfBytes?.length}');
     setState(() => _statusText = 'Extracting PDF content...');
     final base64String = base64Encode(_pdfBytes!);
-    print('PDF_EXTRACT: Base64 string length: ${base64String.length}');
+    debugPrint('PDF_EXTRACT: Base64 string length: ${base64String.length}');
 
     try {
-      print('PDF_EXTRACT: Sending request to KIE API');
+      debugPrint('PDF_EXTRACT: Sending request to KIE API');
       final response = await http.post(
         Uri.parse('https://api.kie.ai/gemini/v1/models/gemini-3-flash-v1betamodels:streamGenerateContent'),
         headers: {
@@ -88,37 +94,37 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
         }),
       );
 
-      print('PDF_EXTRACT: Response status: ${response.statusCode}');
-      print('PDF_EXTRACT: Raw response: ${response.body}');
+      debugPrint('PDF_EXTRACT: Response status: ${response.statusCode}');
+      debugPrint('PDF_EXTRACT: Raw response: ${response.body}');
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = jsonDecode(response.body);
         final String text = data['candidates'][0]['content']['parts'][0]['text'];
-        print('PDF_EXTRACT: Extracted text preview: ${text.substring(0, text.length > 200 ? 200 : text.length)}');
-        print('PDF_EXTRACT: Total text length: ${text.length}');
+        debugPrint('PDF_EXTRACT: Extracted text preview: ${text.substring(0, text.length > 200 ? 200 : text.length)}');
+        debugPrint('PDF_EXTRACT: Total text length: ${text.length}');
         return text;
       } else {
         throw Exception('Failed to extract PDF text: ${response.statusCode}');
       }
     } catch (e) {
-      print('PDF_EXTRACT: ERROR - $e');
+      debugPrint('PDF_EXTRACT: ERROR - $e');
       rethrow;
     }
   }
 
   Future<void> _generateQuestions() async {
-    print('GENERATE: Button tapped');
-    print('GENERATE: PDF selected: ${_pdfBytes != null}');
-    print('GENERATE: Manual text length: ${_contentController.text.length}');
+    debugPrint('GENERATE: Button tapped');
+    debugPrint('GENERATE: PDF selected: ${_pdfBytes != null}');
+    debugPrint('GENERATE: Manual text length: ${_contentController.text.length}');
     
     String content = '';
     
     if (_pdfBytes != null) {
-      print('GENERATE: Using PDF content');
+      debugPrint('GENERATE: Using PDF content');
       try {
         content = await _extractTextFromPDF();
       } catch (e) {
-        print('GENERATE: ERROR - $e');
+        debugPrint('GENERATE: ERROR - $e');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error extracting PDF: $e')),
         );
@@ -126,7 +132,7 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
         return;
       }
     } else if (_contentController.text.trim().isNotEmpty) {
-      print('GENERATE: Using manual text');
+      debugPrint('GENERATE: Using manual text');
       content = _contentController.text.trim();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -135,7 +141,7 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
       return;
     }
 
-    print('CreateExam: content length: ${content.length}, questions: $_questionCount, options: $_optionCount, difficulty: $_difficulty');
+    debugPrint('CreateExam: content length: ${content.length}, questions: $_questionCount, options: $_optionCount, difficulty: $_difficulty');
     setState(() {
       _isLoading = true;
       _statusText = 'Generating questions...';
@@ -148,14 +154,28 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
         optionCount: _optionCount,
         difficulty: _difficulty,
       );
-      print('GENERATE: Total questions: ${questions.length}');
+      debugPrint('GENERATE: Total questions: ${questions.length}');
       setState(() {
-        _questions = questions;
         _isLoading = false;
         _statusText = '';
       });
+
+      // Navigate to Review screen
+      final List<QuestionModel>? reviewedQuestions = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ReviewQuestionsScreen(questions: questions),
+        ),
+      );
+
+      if (reviewedQuestions != null) {
+        setState(() {
+          _questions = reviewedQuestions;
+        });
+        debugPrint('REVIEW: Returned with ${_questions.length} questions');
+      }
     } catch (e) {
-      print('GENERATE: ERROR - $e');
+      debugPrint('GENERATE: ERROR - $e');
       setState(() {
         _isLoading = false;
         _statusText = '';
@@ -163,6 +183,41 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
       );
+    }
+  }
+
+  Future<void> _publishExam() async {
+    debugPrint('PUBLISH_BTN: Publish button tapped');
+    if (_questions.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Generate questions first')),
+      );
+      return;
+    }
+
+    debugPrint('PUBLISH_BTN: Questions ready: ${_questions.length}');
+    setState(() => _isPublishing = true);
+
+    try {
+      debugPrint('PUBLISH_BTN: Calling SupabaseService...');
+      final code = await SupabaseService.publishExam(
+        title: 'Exam ${DateTime.now().toLocal().toString().substring(0, 16)}',
+        questions: _questions,
+        resultMode: _resultMode,
+      );
+      debugPrint('PUBLISH_BTN: Got code: $code');
+      debugPrint('PUBLISH: Result mode: $_resultMode');
+      debugPrint('PUBLISH_BTN: UI updated with code');
+      setState(() {
+        _publishedCode = code;
+      });
+    } catch (e) {
+      debugPrint('PUBLISH_BTN: ERROR - $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    } finally {
+      setState(() => _isPublishing = false);
     }
   }
 
@@ -196,6 +251,8 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
               const SizedBox(height: 16),
               _buildSettingsRow(),
               const SizedBox(height: 24),
+              _buildResultModeUI(),
+              const SizedBox(height: 24),
               _buildGenerateButton(),
               if (_statusText.isNotEmpty) ...[
                 const SizedBox(height: 8),
@@ -210,9 +267,170 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
                 _buildQuestionsHeader(),
                 const SizedBox(height: 16),
                 _buildQuestionsList(),
+                const SizedBox(height: 32),
+                _buildPublishSection(),
+                const SizedBox(height: 32),
               ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResultModeUI() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Result Mode',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildResultCard(
+                mode: 'instant',
+                icon: Icons.flash_on,
+                title: 'Instant',
+                subtitle: 'Student ko turant result mile',
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildResultCard(
+                mode: 'manual',
+                icon: Icons.timer,
+                title: 'Manual Publish',
+                subtitle: 'Teacher publish kare tab result mile',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildResultCard({
+    required String mode,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    final isSelected = _resultMode == mode;
+    return InkWell(
+      onTap: () => setState(() => _resultMode = mode),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.blueAccent.withOpacity(0.05) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? Colors.blueAccent : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: isSelected ? Colors.blueAccent : Colors.grey),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: isSelected ? Colors.blueAccent : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 10, color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPublishSection() {
+    if (_publishedCode == null) {
+      return SizedBox(
+        height: 54,
+        child: ElevatedButton.icon(
+          onPressed: _isPublishing ? null : _publishExam,
+          icon: const Icon(Icons.cloud_upload),
+          label: _isPublishing
+              ? const CircularProgressIndicator(color: Colors.white)
+              : const Text(
+                  'Publish Exam',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      color: Colors.green.shade50,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.green.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.green, size: 48),
+            const SizedBox(height: 16),
+            const Text(
+              'Exam Published!',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.green.shade100),
+              ),
+              child: Text(
+                _publishedCode!,
+                style: const TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 4,
+                  color: Colors.black87,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Share this code with students',
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: _publishedCode!));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Code copied to clipboard')),
+                );
+                debugPrint('PUBLISH: Code copied to clipboard');
+              },
+              icon: const Icon(Icons.copy),
+              label: const Text('Copy Code'),
+            ),
+          ],
         ),
       ),
     );
@@ -281,7 +499,7 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
           child: _buildDropdown<int>(
             label: 'Questions',
             value: _questionCount,
-            items: [3, 5, 10, 15],
+            items: [1, 2, 3, 4, 5, 10, 15, 20],
             onChanged: (val) => setState(() => _questionCount = val!),
           ),
         ),
@@ -290,7 +508,7 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
           child: _buildDropdown<int>(
             label: 'Options',
             value: _optionCount,
-            items: [3, 4],
+            items: [2, 3, 4],
             onChanged: (val) => setState(() => _optionCount = val!),
           ),
         ),

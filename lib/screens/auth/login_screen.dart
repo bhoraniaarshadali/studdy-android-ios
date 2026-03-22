@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../teacher/dashboard_screen.dart';
-import '../student/exam_screen.dart';
+import '../student/student_join_screen.dart';
 
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
@@ -40,7 +40,7 @@ class LoginScreen extends StatelessWidget {
                       title: 'Teacher',
                       icon: Icons.school,
                       onTap: () {
-                        print('Login: Teacher selected');
+                        debugPrint('Login: Teacher selected');
                         Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -57,11 +57,11 @@ class LoginScreen extends StatelessWidget {
                       title: 'Student',
                       icon: Icons.person,
                       onTap: () {
-                        print('Login: Student selected');
+                        debugPrint('Login: Student selected');
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => const StudentExamScreen(),
+                            builder: (context) => const StudentJoinScreen(),
                           ),
                         );
                       },

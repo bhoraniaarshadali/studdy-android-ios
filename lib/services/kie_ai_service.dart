@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
 import '../models/question_model.dart';
 
@@ -14,7 +15,7 @@ class KieAiService {
   }) async {
     final prompt = 'Generate exactly $questionCount MCQ questions from the following content. Each question must have exactly $optionCount options. Difficulty: $difficulty. Return ONLY a valid JSON array, no extra text, no markdown, no backticks. Format: [{"question": "...", "options": ["A", "B", "C", "D"], "correct": 0}] where correct is 0-based index. Content: $content';
     
-    print('KieAI: Sending request - questions: $questionCount, options: $optionCount, difficulty: $difficulty');
+    debugPrint('KieAI: Sending request - questions: $questionCount, options: $optionCount, difficulty: $difficulty');
     
     final requestBody = {
       "stream": false,
@@ -28,7 +29,7 @@ class KieAiService {
       ],
       "generationConfig": {}
     };
-    print('KieAI: Request body: ${json.encode(requestBody)}');
+    debugPrint('KieAI: Request body: ${json.encode(requestBody)}');
 
     try {
       final response = await http.post(
@@ -40,17 +41,17 @@ class KieAiService {
         body: jsonEncode(requestBody),
       );
 
-      print('KieAI: Response status: ${response.statusCode}');
-      print('KieAI: Raw response: ${response.body}');
+      debugPrint('KieAI: Response status: ${response.statusCode}');
+      debugPrint('KieAI: Raw response: ${response.body}');
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data = jsonDecode(response.body);
         String textResponse = data['candidates'][0]['content']['parts'][0]['text'];
-        print('KieAI: Extracted text: $textResponse');
+        debugPrint('KieAI: Extracted text: $textResponse');
 
         // Clean JSON response (remove markdown backticks if present)
         String cleanedText = textResponse.replaceAll('```json', '').replaceAll('```', '').trim();
-        print('KieAI: Cleaned text: $cleanedText');
+        debugPrint('KieAI: Cleaned text: $cleanedText');
 
         final List<dynamic> questionList = jsonDecode(cleanedText);
 
@@ -64,13 +65,13 @@ class KieAiService {
           );
         });
 
-        print('KieAI: Successfully parsed ${questions.length} questions');
+        debugPrint('KieAI: Successfully parsed ${questions.length} questions');
         return questions;
       } else {
         throw Exception('Failed to generate questions: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('KieAI: ERROR - $e');
+      debugPrint('KieAI: ERROR - $e');
       throw Exception('Error occurred while generating questions: $e');
     }
   }

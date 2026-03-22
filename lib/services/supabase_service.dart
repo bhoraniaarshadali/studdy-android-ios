@@ -1,0 +1,185 @@
+import 'dart:math';
+import 'package:flutter/cupertino.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/question_model.dart';
+
+class SupabaseService {
+  static final _client = Supabase.instance.client;
+
+  // Generate random 6 digit exam code
+  static String generateExamCode() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final random = Random();
+    return List.generate(6, (index) => chars[random.nextInt(chars.length)]).join();
+  }
+
+  // Save exam to Supabase
+  static Future<String> publishExam({
+    required String title,
+    required List<QuestionModel> questions,
+    required String resultMode, // 'instant' or 'manual'
+  }) async {
+    debugPrint('PUBLISH: Starting publish process');
+    debugPrint('PUBLISH: Title: $title');
+    debugPrint('PUBLISH: Total questions: ${questions.length}');
+    debugPrint('PUBLISH: Result mode: $resultMode');
+    try {
+      final code = generateExamCode();
+      debugPrint('PUBLISH: Generated code: $code');
+      
+      final questionsJson = questions.map((q) => q.toJson()).toList();
+      debugPrint('PUBLISH: Questions JSON prepared: ${questionsJson.length} items');
+      
+      debugPrint('PUBLISH: Sending to Supabase...');
+      await _client.from('exams').insert({
+        'code': code,
+        'title': title,
+        'questions': questionsJson,
+        'result_mode': resultMode,
+        'results_published': false,
+      });
+      
+      debugPrint('PUBLISH: Success! Exam saved with code: $code');
+      return code;
+    } catch (e) {
+      debugPrint('PUBLISH: ERROR - $e');
+      throw Exception('Failed to publish exam: $e');
+    }
+  }
+
+  // Get all exams for teacher
+  static Future<List<Map<String, dynamic>>> getTeacherExams() async {
+    try {
+      // 1. First fetch all exams:
+      final List<dynamic> exams = await _client
+        .from('exams')
+        .select('id, code, title, result_mode, results_published, created_at')
+        .order('created_at', ascending: false);
+      
+      print('TEACHER_EXAMS: Got ${exams.length} exams');
+
+      final List<Map<String, dynamic>> examList = List<Map<String, dynamic>>.from(exams);
+
+      // 2. For each exam, separately fetch student count:
+      for (var exam in examList) {
+        final results = await _client
+          .from('results')
+          .select('id')
+          .eq('exam_code', exam['code']);
+        
+        exam['student_count'] = results.length;
+        print('TEACHER_EXAMS: Exam ${exam['code']} has ${results.length} students');
+      }
+
+      // 3. Return the exams list with student_count added
+      return examList;
+    } catch (e) {
+      print('TEACHER_EXAMS: ERROR - $e');
+      throw Exception('Failed to fetch exams: $e');
+    }
+  }
+
+  // Publish results for an exam
+  static Future<void> publishResults(String examCode) async {
+    try {
+      debugPrint('PUBLISH_RESULTS: Publishing results for exam: $examCode');
+      await _client
+          .from('exams')
+          .update({'results_published': true})
+          .eq('code', examCode);
+      debugPrint('PUBLISH_RESULTS: Results published for exam: $examCode');
+    } catch (e) {
+      debugPrint('PUBLISH_RESULTS: ERROR - $e');
+      throw Exception('Failed to publish results: $e');
+    }
+  }
+
+  // Get results for a specific exam
+  static Future<List<Map<String, dynamic>>> getExamResults(String examCode) async {
+    try {
+      debugPrint('EXAM_RESULTS: Fetching results for $examCode');
+      final results = await _client
+          .from('results')
+          .select()
+          .eq('exam_code', examCode)
+          .order('score', ascending: false);
+      
+      debugPrint('EXAM_RESULTS: Fetched ${(results as List).length} results for $examCode');
+      return List<Map<String, dynamic>>.from(results);
+    } catch (e) {
+      debugPrint('EXAM_RESULTS: ERROR - $e');
+      throw Exception('Failed to fetch results: $e');
+    }
+  }
+
+  // Check if results are published for an exam
+  static Future<bool> checkResultsPublished(String examCode) async {
+    try {
+      debugPrint('CHECK_PUBLISHED: Checking exam $examCode');
+      final response = await _client
+          .from('exams')
+          .select('results_published')
+          .eq('code', examCode)
+          .single();
+      
+      final bool value = response['results_published'] ?? false;
+      debugPrint('CHECK_PUBLISHED: Exam $examCode published: $value');
+      return value;
+    } catch (e) {
+      debugPrint('CHECK_PUBLISHED: ERROR - $e');
+      return false;
+    }
+  }
+
+  // Get exam by code
+  static Future<List<QuestionModel>> getExamByCode(String code) async {
+    debugPrint('FETCH: Looking for exam with code: $code');
+    try {
+      final response = await _client
+          .from('exams')
+          .select()
+          .eq('code', code)
+          .single();
+      
+      debugPrint('FETCH: Response received: ${response.toString().substring(0, response.toString().length > 100 ? 100 : response.toString().length)}');
+      debugPrint('FETCH: Title: ${response['title']}');
+      
+      final questionsJson = response['questions'] as List;
+      debugPrint('FETCH: Questions count: ${questionsJson.length}');
+      return questionsJson.map((q) => QuestionModel.fromJson(Map<String, dynamic>.from(q))).toList();
+    } catch (e) {
+      debugPrint('FETCH: ERROR - $e');
+      throw Exception('Exam not found. Check the code and try again.');
+    }
+  }
+
+  // Save result to Supabase
+  static Future<void> saveResult({
+    required String examCode,
+    required String studentName,
+    required int score,
+    required int total,
+    required List<int?> answers,
+    required bool instantMode,
+  }) async {
+    debugPrint('RESULT: Saving for student: $studentName');
+    debugPrint('RESULT: Exam code: $examCode');
+    debugPrint('RESULT: Score: $score / $total');
+    debugPrint('RESULT: Answers: $answers');
+    debugPrint('RESULT: Mode: ${instantMode ? 'instant' : 'manual'}');
+    try {
+      await _client.from('results').insert({
+        'exam_code': examCode,
+        'student_name': studentName,
+        'score': score,
+        'total': total,
+        'answers': answers,
+      });
+      
+      debugPrint('RESULT: Saved successfully!');
+    } catch (e) {
+      debugPrint('RESULT: ERROR - $e');
+      throw Exception('Failed to save result: $e');
+    }
+  }
+}
