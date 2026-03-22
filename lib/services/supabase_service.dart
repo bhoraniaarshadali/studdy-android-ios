@@ -372,12 +372,13 @@ class SupabaseService {
     required int total,
     required List<int?> answers,
     required bool instantMode,
+    int warnings = 0,
+    int appSwitches = 0,
   }) async {
     debugPrint('RESULT: Saving for enrollment: $enrollmentNumber');
     debugPrint('RESULT: Exam code: $examCode');
     debugPrint('RESULT: Score: $score / $total');
-    debugPrint('RESULT: Answers: $answers');
-    debugPrint('RESULT: Mode: ${instantMode ? 'instant' : 'manual'}');
+    debugPrint('RESULT: Warnings: $warnings, Switches: $appSwitches');
     try {
       await _client.from('results').insert({
         'exam_code': examCode,
@@ -385,6 +386,8 @@ class SupabaseService {
         'score': score,
         'total': total,
         'answers': answers,
+        'warnings': warnings,
+        'app_switches': appSwitches,
       });
       
       debugPrint('RESULT: Saved successfully!');

@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:camera/camera.dart';
+import 'package:no_screenshot/no_screenshot.dart';
 import 'dart:async';
 import '../../models/question_model.dart';
 import '../../services/supabase_service.dart';
@@ -22,7 +27,7 @@ class StudentExamScreen extends StatefulWidget {
   State<StudentExamScreen> createState() => _StudentExamScreenState();
 }
 
-class _StudentExamScreenState extends State<StudentExamScreen> {
+class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindingObserver {
   int _currentQuestion = 0;
   late List<int?> _selectedAnswers;
   bool _isSubmitting = false;
@@ -37,12 +42,40 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
   bool _timerExpired = false;
   String _timerMode = 'none';
 
+  // Anti-cheat state variables
+  int _warningCount = 0;
+  bool _examPaused = false;
+  bool _cameraInitialized = false;
+  CameraController? _cameraController;
+  bool _faceDetected = true;
+  Timer? _faceCheckTimer;
+  int _appSwitchCount = 0;
+
   @override
   void initState() {
     super.initState();
     _selectedAnswers = List.filled(widget.questions.length, null);
     debugPrint('EXAM: Started for ${widget.enrollmentNumber}, questions: ${widget.questions.length}');
     
+    // Anti-cheat setup
+    WidgetsBinding.instance.addObserver(this);
+    
+    // Fullscreen lock
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    
+    // Screen on raho
+    WakelockPlus.enable();
+    
+    // Screenshot block (Android/iOS)
+    NoScreenshot.instance.screenshotOff();
+    
+    // Initialize camera for proctoring
+    _initCamera();
+    
+    print('ANTICHEAT: Fullscreen enabled');
+    print('ANTICHEAT: Screenshot blocked');
+    print('ANTICHEAT: Wakelock enabled');
+
     // Initialize Timer
     if (widget.timerData != null && widget.timerData!['valid'] == true) {
       if (widget.timerData!.containsKey('durationMinutes')) {
@@ -63,7 +96,14 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
 
   @override
   void dispose() {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge); // restore UI
+    NoScreenshot.instance.screenshotOn(); // restore screenshot
+    WakelockPlus.disable();
     _countdownTimer?.cancel();
+    _faceCheckTimer?.cancel();
+    _cameraController?.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    print('ANTICHEAT: All proctoring disposed');
     super.dispose();
   }
 
@@ -145,6 +185,193 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
     return score;
   }
 
+  Future<void> _initCamera() async {
+    try {
+      if (kIsWeb) return; // skip on web
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        print('ANTICHEAT: No cameras available');
+        return;
+      }
+      final frontCamera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
+      _cameraController = CameraController(
+        frontCamera,
+        ResolutionPreset.low,
+        enableAudio: false,
+      );
+      await _cameraController!.initialize();
+      if (mounted) {
+        setState(() => _cameraInitialized = true);
+      }
+      print('ANTICHEAT: Front camera initialized for proctoring');
+      
+      // Start face check every 5 seconds
+      _faceCheckTimer = Timer.periodic(const Duration(seconds: 5), (_) => _checkFacePresence());
+    } catch (e) {
+      print('ANTICHEAT: Camera init failed: $e');
+    }
+  }
+
+  Future<void> _checkFacePresence() async {
+    // Basic check - camera stream active matlab student present hai
+    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
+    if (_examSubmitted || _examPaused) return;
+    
+    try {
+      // Capture frame and check (simulated detection)
+      // In real scenario, would use google_ml_kit for actual face detection
+      await _cameraController!.takePicture();
+      // print('ANTICHEAT: Face check - camera active, student present');
+    } catch (e) {
+      print('ANTICHEAT: Face check warning - $e');
+      _onFaceNotDetected();
+    }
+  }
+
+  void _onFaceNotDetected() {
+    if (_examSubmitted) return;
+    setState(() => _warningCount++);
+    print('ANTICHEAT: Face not detected! Warning #$_warningCount');
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(children: [
+          Icon(Icons.warning, color: Colors.white),
+          SizedBox(width: 8),
+          Text('Warning: Please keep your face visible!'),
+        ]),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      )
+    );
+    
+    if (_warningCount >= 3) {
+      _showMaxWarningDialog();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_examSubmitted) return;
+    
+    if (state == AppLifecycleState.paused || 
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      
+      setState(() => _appSwitchCount++);
+      print('ANTICHEAT: App switched/paused! Count: $_appSwitchCount');
+      
+      // Re-enable fullscreen when coming back
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    }
+    
+    if (state == AppLifecycleState.resumed) {
+      // App came back - show warning
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      print('ANTICHEAT: App resumed, count: $_appSwitchCount');
+      
+      if (_appSwitchCount > 0 && !_examSubmitted) {
+        setState(() => _warningCount++);
+        _showAppSwitchWarning();
+      }
+    }
+  }
+
+  void _showAppSwitchWarning() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.warning_amber, color: Colors.orange, size: 28),
+          SizedBox(width: 8),
+          Text('Warning!'),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('You switched away from the exam!'),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Warning $_warningCount of 3\nAfter 3 warnings, exam will be auto-submitted.',
+                style: TextStyle(color: Colors.orange.shade800, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            onPressed: () {
+              Navigator.pop(context);
+              SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+              print('ANTICHEAT: Warning acknowledged');
+            },
+            child: const Text('Continue Exam', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    
+    if (_warningCount >= 3) {
+      _showMaxWarningDialog();
+    }
+  }
+
+  void _showMaxWarningDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Row(children: [
+          Icon(Icons.gpp_bad, color: Colors.red, size: 28),
+          SizedBox(width: 8),
+          Text('Exam Terminated!'),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('You have received 3 warnings.'),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Your exam is being auto-submitted due to suspicious activity.',
+                style: TextStyle(color: Colors.red.shade800),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              Navigator.pop(context);
+              print('ANTICHEAT: Max warnings reached - auto submitting');
+              _submitExam();
+            },
+            child: const Text('Submit Exam', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _submitExam() async {
     setState(() => _isSubmitting = true);
     final score = _calculateScore();
@@ -158,7 +385,11 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
         total: widget.questions.length,
         answers: _selectedAnswers,
         instantMode: true,
+        warnings: _warningCount,
+        appSwitches: _appSwitchCount,
       );
+      
+      print('ANTICHEAT: Exam submitted with $_warningCount warnings, $_appSwitchCount app switches');
       
       debugPrint('EXAM: Submitted, score: $score / ${widget.questions.length}');
       debugPrint('RESULT: Score: $score/${widget.questions.length} = $percentage%');
@@ -236,47 +467,205 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey.shade50,
-      appBar: AppBar(
-        title: const Text('Exam', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-        automaticallyImplyLeading: false,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-        actions: [
-          if (_timerMode != 'none' && !_examSubmitted)
-            Padding(
-              padding: const EdgeInsets.only(right: 16, top: 12, bottom: 12),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _remainingSeconds <= 60 ? Colors.red : 
-                         _remainingSeconds <= 300 ? Colors.orange : Colors.green,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.timer, color: Colors.white, size: 16),
-                    const SizedBox(width: 4),
-                    Text(
-                      _formatTime(_remainingSeconds),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && !_examSubmitted) {
+          print('ANTICHEAT: Back button blocked');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Back button disabled during exam'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 2),
+            )
+          );
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.grey.shade50,
+        appBar: AppBar(
+          title: const Text('Exam', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          automaticallyImplyLeading: false,
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+          elevation: 0,
+          actions: [
+            if (_timerMode != 'none' && !_examSubmitted)
+              Padding(
+                padding: const EdgeInsets.only(right: 16, top: 12, bottom: 12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: _remainingSeconds <= 60 ? Colors.red : 
+                           _remainingSeconds <= 300 ? Colors.orange : Colors.green,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.timer, color: Colors.white, size: 16),
+                      const SizedBox(width: 4),
+                      Text(
+                        _formatTime(_remainingSeconds),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
                       ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+        body: Stack(
+          children: [
+            Column(
+              children: [
+                if (!_examSubmitted)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    color: Colors.red.shade50,
+                    child: Row(
+                      children: [
+                        // Camera status
+                        Icon(
+                          _cameraInitialized ? Icons.videocam : Icons.videocam_off,
+                          size: 14,
+                          color: _cameraInitialized ? Colors.green : Colors.grey,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _cameraInitialized ? 'Proctored' : 'Camera off',
+                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                        const Spacer(),
+                        // Warning count
+                        if (_warningCount > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.orange,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            'Warnings: $_warningCount/3',
+                            style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // App switch count
+                        if (_appSwitchCount > 0)
+                        Text(
+                          'Switches: $_appSwitchCount',
+                          style: const TextStyle(fontSize: 11, color: Colors.red),
+                        ),
+                      ],
+                    ),
+                  ),
+                Expanded(
+                  child: _isSubmitting 
+                      ? _buildSubmittingState()
+                      : (!_examSubmitted ? _buildExamInProgress() : _buildPostSubmissionView()),
+                ),
+              ],
+            ),
+            
+            // Floating camera preview (top left corner)
+            if (_cameraInitialized && !_examSubmitted && !kIsWeb)
+            Positioned(
+              top: 16,
+              left: 16,
+              child: Container(
+                width: 80,
+                height: 100,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _warningCount > 0 ? Colors.orange : Colors.green,
+                    width: 2,
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 8,
+                      offset: Offset(0, 2),
                     ),
                   ],
                 ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Stack(
+                    children: [
+                      // Camera preview
+                      CameraPreview(_cameraController!),
+                      
+                      // Live indicator top left
+                      Positioned(
+                        top: 4,
+                        left: 4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 5,
+                                height: 5,
+                                decoration: const BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 2),
+                              const Text(
+                                'LIVE',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 7,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      
+                      // Warning indicator if warnings > 0
+                      if (_warningCount > 0)
+                      Positioned(
+                        bottom: 4,
+                        right: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: const BoxDecoration(
+                            color: Colors.orange,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text(
+                            '$_warningCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 8,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-        ],
+          ],
+        ),
       ),
-      body: _isSubmitting 
-          ? _buildSubmittingState()
-          : (!_examSubmitted ? _buildExamInProgress() : _buildPostSubmissionView()),
     );
   }
 
@@ -335,9 +724,11 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
             borderRadius: BorderRadius.circular(10),
           ),
           const SizedBox(height: 32),
-          Text(
-            q.questionText,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          SelectionContainer.disabled(
+            child: Text(
+              q.questionText,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
           ),
           const SizedBox(height: 24),
           Expanded(
@@ -382,12 +773,14 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
                         ),
                         const SizedBox(width: 16),
                         Expanded(
-                          child: Text(
-                            q.options[index],
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: isSelected ? Colors.blueAccent : Colors.black87,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          child: SelectionContainer.disabled(
+                            child: Text(
+                              q.options[index],
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: isSelected ? Colors.blueAccent : Colors.black87,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              ),
                             ),
                           ),
                         ),
@@ -532,6 +925,30 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
               ],
             ),
           ),
+          if (_warningCount > 0 || _appSwitchCount > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 24),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange.shade800),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Note: $_warningCount warnings and $_appSwitchCount app switches were recorded during this exam.',
+                        style: TextStyle(color: Colors.orange.shade800, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           const SizedBox(height: 32),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -610,7 +1027,7 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            Text(q.questionText, style: const TextStyle(fontSize: 15)),
+            SelectionContainer.disabled(child: Text(q.questionText, style: const TextStyle(fontSize: 15))),
             const SizedBox(height: 12),
             _buildReviewOption('Your: ${selected != null ? q.options[selected] : 'Not answered'}', isCorrect ? Colors.green : Colors.red),
             if (!isCorrect) 
@@ -631,7 +1048,7 @@ class _StudentExamScreenState extends State<StudentExamScreen> {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color.withOpacity(0.2)),
       ),
-      child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.w500, fontSize: 13)),
+      child: SelectionContainer.disabled(child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.w500, fontSize: 13))),
     );
   }
 }

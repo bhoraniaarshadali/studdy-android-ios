@@ -290,6 +290,21 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
                         ...List.generate(_filteredResults.length, (index) {
                           return _buildResultCard(_filteredResults[index], index);
                         }),
+                      
+                      const SizedBox(height: 32),
+                      // SECTION 3 — Proctoring Report
+                      const Row(
+                        children: [
+                          Icon(Icons.security_rounded, color: Colors.blueAccent, size: 24),
+                          SizedBox(width: 8),
+                          Text(
+                            'Proctoring Report',
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      ..._results.map((result) => _buildProctoringCard(result)),
                     ] else
                       _buildEmptyState(),
                   ],
@@ -719,6 +734,133 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
         style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold),
       ),
     );
+  }
+
+  Widget _buildProctoringCard(Map<String, dynamic> result) {
+    print('PROCTOR_REPORT: ${result['enrollment_number']} - warnings: ${result['warnings']}, switches: ${result['app_switches']}, risk: ${_getRiskLabel(result)}');
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _getProctoringColor(result),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _getProctoringBorderColor(result)),
+      ),
+      child: Row(
+        children: [
+          // Status icon
+          Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              _getProctoringIcon(result),
+              color: _getProctoringIconColor(result),
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          
+          // Student info
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  result['enrollment_number'] ?? 'Unknown',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    // Warnings
+                    const Icon(Icons.warning_amber, size: 12, color: Colors.orange),
+                    const SizedBox(width: 2),
+                    Text(
+                      '${result['warnings'] ?? 0} warnings',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(width: 12),
+                    // App switches
+                    const Icon(Icons.swap_horiz, size: 12, color: Colors.blue),
+                    const SizedBox(width: 2),
+                    Text(
+                      '${result['app_switches'] ?? 0} switches',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          
+          // Risk badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: _getRiskColor(result),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              _getRiskLabel(result),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _getProctoringColor(Map<String, dynamic> result) {
+    final warnings = (result['warnings'] ?? 0) as int;
+    final switches = (result['app_switches'] ?? 0) as int;
+    final total = warnings + switches;
+    if (total == 0) return Colors.green.shade50;
+    if (total <= 2) return Colors.orange.shade50;
+    return Colors.red.shade50;
+  }
+
+  Color _getProctoringBorderColor(Map<String, dynamic> result) {
+    final total = ((result['warnings'] ?? 0) as int) + ((result['app_switches'] ?? 0) as int);
+    if (total == 0) return Colors.green.shade200;
+    if (total <= 2) return Colors.orange.shade200;
+    return Colors.red.shade200;
+  }
+
+  IconData _getProctoringIcon(Map<String, dynamic> result) {
+    final total = ((result['warnings'] ?? 0) as int) + ((result['app_switches'] ?? 0) as int);
+    if (total == 0) return Icons.verified_user;
+    if (total <= 2) return Icons.warning_amber;
+    return Icons.gpp_bad;
+  }
+
+  Color _getProctoringIconColor(Map<String, dynamic> result) {
+    final total = ((result['warnings'] ?? 0) as int) + ((result['app_switches'] ?? 0) as int);
+    if (total == 0) return Colors.green;
+    if (total <= 2) return Colors.orange;
+    return Colors.red;
+  }
+
+  Color _getRiskColor(Map<String, dynamic> result) {
+    final total = ((result['warnings'] ?? 0) as int) + ((result['app_switches'] ?? 0) as int);
+    if (total == 0) return Colors.green;
+    if (total <= 2) return Colors.orange;
+    return Colors.red;
+  }
+
+  String _getRiskLabel(Map<String, dynamic> result) {
+    final total = ((result['warnings'] ?? 0) as int) + ((result['app_switches'] ?? 0) as int);
+    if (total == 0) return 'Clean';
+    if (total <= 2) return 'Suspicious';
+    return 'High Risk';
   }
 }
 
