@@ -605,20 +605,20 @@ class _ExamPaperGeneratorScreenState extends State<ExamPaperGeneratorScreen> {
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
                         _buildDifficultyChip(
                           'easy',
                           'Easy Paper',
                           Colors.green,
                         ),
-                        const SizedBox(width: 8),
                         _buildDifficultyChip(
                           'balanced',
                           'Balanced',
                           Colors.blue,
                         ),
-                        const SizedBox(width: 8),
                         _buildDifficultyChip(
                           'tough',
                           'Tough Paper',

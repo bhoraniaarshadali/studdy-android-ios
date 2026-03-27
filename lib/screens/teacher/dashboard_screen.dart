@@ -6,6 +6,7 @@ import 'exam_detail_screen.dart';
 import 'exam_paper_generator_screen.dart';
 import '../../widgets/error_widget.dart';
 import '../../widgets/loading_widget.dart';
+import 'generated_papers_screen.dart';
 
 class TeacherDashboardScreen extends StatefulWidget {
   const TeacherDashboardScreen({super.key});
@@ -364,15 +365,26 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
           child: Row(
             children: [
-              Icon(Icons.description, color: Colors.orange, size: 20),
-              SizedBox(width: 8),
-              Text(
+              const Icon(Icons.description, color: Colors.orange, size: 20),
+              const SizedBox(width: 8),
+              const Text(
                 'Generated Papers',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const GeneratedPapersScreen()),
+                  ).then((_) => _loadExams());
+                },
+                child: const Text('View All'),
               ),
             ],
           ),
@@ -390,9 +402,13 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: ListTile(
-                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Paper viewer coming soon')),
-                ),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const GeneratedPapersScreen()),
+                  ).then((_) => _loadExams());
+                },
                 title: Text(
                   paper['title'] ?? 'Untitled Paper',
                   style: const TextStyle(fontWeight: FontWeight.bold),

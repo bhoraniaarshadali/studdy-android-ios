@@ -287,41 +287,109 @@ $pdfContent
 ]''';
   }
 
-  // Save paper to Supabase
-  static Future<void> savePaper({
+  // Save paper to Supabase with PDF upload support
+  static Future<String> savePaper({
     required String title,
     required int totalMarks,
     required List<PaperSection> sections,
     required List<GeneratedQuestion> questions,
     required String difficulty,
     required String template,
+    Uint8List? pdfBytes,
   }) async {
     try {
       final db = Supabase.instance.client;
+      String? pdfUrl;
 
-      await db.from('generated_papers').insert({
-        'title': title,
-        'total_marks': totalMarks,
-        'sections': sections.map((s) => s.toJson()).toList(),
-        'questions': questions.map((q) => q.toJson()).toList(),
-        'answer_key': questions
-            .map(
-              (q) => {
-                'question': q.questionText,
-                'answer': q.answer,
-                'marks': q.marks,
-                'section': q.sectionName,
-              },
-            )
-            .toList(),
-        'difficulty': difficulty,
-        'template': template,
-      });
+      // Step 1: Upload PDF to Supabase Storage if provided
+      if (pdfBytes != null) {
+        print('PAPER_SAVE: Uploading PDF to Supabase Storage...');
+        final fileName =
+            '${title.replaceAll(RegExp(r'[^\w\s-]'), '').replaceAll(' ', '_')}_${DateTime.now().millisecondsSinceEpoch}.pdf';
 
-      print('PAPER_GEN: Paper saved to Supabase successfully');
+        await db.storage.from('exam-papers').uploadBinary(
+              fileName,
+              pdfBytes,
+              fileOptions: const FileOptions(contentType: 'application/pdf'),
+            );
+
+        pdfUrl = db.storage.from('exam-papers').getPublicUrl(fileName);
+
+        print('PAPER_SAVE: PDF uploaded successfully: $pdfUrl');
+      }
+
+      // Step 2: Save paper metadata to database
+      final response = await db
+          .from('generated_papers')
+          .insert({
+            'title': title,
+            'total_marks': totalMarks,
+            'sections': sections.map((s) => s.toJson()).toList(),
+            'questions': questions.map((q) => q.toJson()).toList(),
+            'answer_key': questions
+                .map((q) => {
+                      'question': q.questionText,
+                      'answer': q.answer,
+                      'marks': q.marks,
+                      'section': q.sectionName,
+                    })
+                .toList(),
+            'difficulty': difficulty,
+            'template': template,
+            'pdf_url': pdfUrl,
+          })
+          .select()
+          .single();
+
+      print('PAPER_SAVE: Paper saved to DB with id: ${response['id']}');
+      return pdfUrl ?? '';
     } catch (e) {
-      print('PAPER_GEN: Save ERROR - $e');
+      print('PAPER_SAVE: ERROR - $e');
       throw Exception('Failed to save paper: $e');
+    }
+  }
+
+  // Fetch all generated papers
+  static Future<List<Map<String, dynamic>>> getPaperHistory() async {
+    try {
+      final db = Supabase.instance.client;
+      final response = await db
+          .from('generated_papers')
+          .select(
+              'id, title, total_marks, difficulty, template, pdf_url, created_at, sections, questions')
+          .order('created_at', ascending: false);
+
+      print('PAPER_HISTORY: Fetched ${response.length} papers');
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      print('PAPER_HISTORY: ERROR - $e');
+      throw Exception('Failed to fetch paper history: $e');
+    }
+  }
+
+  // Delete paper from DB and Storage
+  static Future<void> deletePaper(int id, String? pdfUrl) async {
+    try {
+      final db = Supabase.instance.client;
+
+      // Delete PDF from storage if exists
+      if (pdfUrl != null && pdfUrl.isNotEmpty) {
+        try {
+          final uri = Uri.parse(pdfUrl);
+          final fileName = uri.pathSegments.last;
+          await db.storage.from('exam-papers').remove([fileName]);
+          print('PAPER_DELETE: PDF removed from storage: $fileName');
+        } catch (storageErr) {
+          print('PAPER_DELETE: Storage removal error (ignoring): $storageErr');
+        }
+      }
+
+      // Delete from database
+      await db.from('generated_papers').delete().eq('id', id);
+      print('PAPER_DELETE: Paper deleted from DB: $id');
+    } catch (e) {
+      print('PAPER_DELETE: ERROR - $e');
+      throw Exception('Failed to delete paper: $e');
     }
   }
 }
