@@ -7,6 +7,7 @@ import 'exam_paper_generator_screen.dart';
 import '../../widgets/error_widget.dart';
 import '../../widgets/loading_widget.dart';
 import 'generated_papers_screen.dart';
+import 'teacher_exams_screen.dart';
 
 class TeacherDashboardScreen extends StatefulWidget {
   const TeacherDashboardScreen({super.key});
@@ -184,14 +185,32 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
           _buildActionCards(),
           _buildStatsRow(),
           if (_exams.isNotEmpty) ...[
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              child: Text(
-                'Recent Exams',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Row(
+                children: [
+                  const Text(
+                    'Recent Exams',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const TeacherExamsScreen(),
+                        ),
+                      ).then((_) => _loadExams());
+                    },
+                    child: const Text('View All'),
+                  ),
+                ],
               ),
             ),
             ..._exams
+                .take(2)
                 .map(
                   (exam) => Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -381,7 +400,8 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => const GeneratedPapersScreen()),
+                      builder: (_) => const GeneratedPapersScreen(),
+                    ),
                   ).then((_) => _loadExams());
                 },
                 child: const Text('View All'),
@@ -393,7 +413,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: _generatedPapers.length,
+          itemCount: _generatedPapers.length > 2 ? 2 : _generatedPapers.length,
           itemBuilder: (context, index) {
             final paper = _generatedPapers[index];
             return Card(
@@ -406,7 +426,8 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => const GeneratedPapersScreen()),
+                      builder: (_) => const GeneratedPapersScreen(),
+                    ),
                   ).then((_) => _loadExams());
                 },
                 title: Text(

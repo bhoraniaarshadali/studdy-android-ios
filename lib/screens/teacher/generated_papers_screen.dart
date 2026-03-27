@@ -5,7 +5,6 @@ import 'package:open_file/open_file.dart';
 import '../../services/paper_generator_service.dart';
 import '../../widgets/loading_widget.dart';
 import '../../widgets/error_widget.dart';
-import 'exam_paper_generator_screen.dart';
 
 class GeneratedPapersScreen extends StatefulWidget {
   const GeneratedPapersScreen({super.key});
@@ -117,9 +116,9 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to delete: $e')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Failed to delete: $e')));
         }
       }
     }
@@ -127,9 +126,9 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
 
   Future<void> _openPDF(String? pdfUrl) async {
     if (pdfUrl == null || pdfUrl.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PDF not available')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('PDF not available')));
       return;
     }
 
@@ -145,7 +144,8 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
         }
 
         final file = File(
-            '${dir.path}/paper_${DateTime.now().millisecondsSinceEpoch}.pdf');
+          '${dir.path}/paper_${DateTime.now().millisecondsSinceEpoch}.pdf',
+        );
         await file.writeAsBytes(response.bodyBytes);
 
         print('PAPER_HISTORY: PDF saved to ${file.path}, opening...');
@@ -156,9 +156,9 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
     } catch (e) {
       print('PAPER_HISTORY: Open PDF ERROR - $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to open PDF: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to open PDF: $e')));
       }
     } finally {
       if (mounted) {
@@ -190,10 +190,7 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
     }
 
     if (_errorMessage != null) {
-      return AppErrorWidget(
-        message: _errorMessage!,
-        onRetry: _loadPapers,
-      );
+      return AppErrorWidget(message: _errorMessage!, onRetry: _loadPapers);
     }
 
     if (_papers.isEmpty) {
@@ -203,15 +200,19 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.description_outlined,
-                  size: 72, color: Colors.grey.shade300),
+              Icon(
+                Icons.description_outlined,
+                size: 72,
+                color: Colors.grey.shade300,
+              ),
               const SizedBox(height: 16),
               const Text(
                 'No papers generated yet',
                 style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey),
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                ),
               ),
               const SizedBox(height: 8),
               const Text(
@@ -219,33 +220,10 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey),
               ),
-              const SizedBox(height: 32),
-              ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const ExamPaperGeneratorScreen()),
-                  ).then((_) => _loadPapers());
-                },
-                icon: const Icon(Icons.add),
-                label: const Text('Generate New Paper'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.purple,
-                  foregroundColor: Colors.white,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                ),
-              ),
             ],
           ),
         ),
       );
-    }
-
-    int totalMarksSum = 0;
-    for (var p in _papers) {
-      totalMarksSum += (p['total_marks'] as int? ?? 0);
     }
 
     return Column(
@@ -255,11 +233,11 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Row(
             children: [
-              _buildStatCard('Total Papers', _papers.length.toString(),
-                  Colors.blue.shade700),
-              const SizedBox(width: 12),
               _buildStatCard(
-                  'Total Marks', totalMarksSum.toString(), Colors.purple),
+                'Total Papers',
+                _papers.length.toString(),
+                Colors.blue.shade700,
+              ),
             ],
           ),
         ),
@@ -289,12 +267,19 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
         ),
         child: Column(
           children: [
-            Text(label,
-                style: TextStyle(color: color.withOpacity(0.8), fontSize: 12)),
+            Text(
+              label,
+              style: TextStyle(color: color.withOpacity(0.8), fontSize: 12),
+            ),
             const SizedBox(height: 4),
-            Text(value,
-                style: TextStyle(
-                    color: color, fontWeight: FontWeight.bold, fontSize: 20)),
+            Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
+            ),
           ],
         ),
       ),
@@ -327,8 +312,11 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
                     color: Colors.orange.shade50,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.picture_as_pdf,
-                      color: Colors.orange, size: 28),
+                  child: const Icon(
+                    Icons.picture_as_pdf,
+                    color: Colors.orange,
+                    size: 28,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -338,7 +326,9 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
                       Text(
                         paper['title'] ?? 'Untitled Paper',
                         style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 16),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
                       const SizedBox(height: 6),
                       Wrap(
@@ -346,24 +336,35 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
                         runSpacing: 6,
                         children: [
                           _buildBadge(
-                              '${paper['total_marks']} Marks', Colors.blue),
-                          _buildBadge(paper['difficulty'] ?? 'balanced',
-                              _getDifficultyColor(paper['difficulty'])),
+                            '${paper['total_marks']} Marks',
+                            Colors.blue,
+                          ),
                           _buildBadge(
-                              paper['template'] ?? 'standard', Colors.purple),
+                            paper['difficulty'] ?? 'balanced',
+                            _getDifficultyColor(paper['difficulty']),
+                          ),
+                          _buildBadge(
+                            paper['template'] ?? 'standard',
+                            Colors.purple,
+                          ),
                         ],
                       ),
                       const SizedBox(height: 8),
                       Text(
                         _formatDate(paper['created_at']),
-                        style:
-                            const TextStyle(color: Colors.grey, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    color: Colors.redAccent,
+                  ),
                   onPressed: () => _deletePaper(paper),
                 ),
               ],
@@ -383,11 +384,14 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Contents:',
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey)),
+                  const Text(
+                    'Contents:',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
+                    ),
+                  ),
                   const SizedBox(height: 6),
                   Wrap(
                     spacing: 6,
@@ -395,7 +399,9 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
                     children: sections.map((s) {
                       return Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(6),
@@ -403,8 +409,10 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
                         ),
                         child: Text(
                           '${s['section_name']} (${s['total_marks']}M)',
-                          style:
-                              const TextStyle(fontSize: 10, color: Colors.blueGrey),
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.blueGrey,
+                          ),
                         ),
                       );
                     }).toList(),
@@ -433,19 +441,11 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
                   TextButton.icon(
                     onPressed: () => _openPDF(paper['pdf_url']),
                     icon: const Icon(Icons.open_in_new, size: 16),
-                    label: const Text('Open PDF', style: TextStyle(fontSize: 12)),
+                    label: const Text(
+                      'Open PDF',
+                      style: TextStyle(fontSize: 12),
+                    ),
                   ),
-                TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const ExamPaperGeneratorScreen()),
-                    ).then((_) => _loadPapers());
-                  },
-                  icon: const Icon(Icons.add_circle_outline, size: 16),
-                  label: const Text('New', style: TextStyle(fontSize: 12)),
-                ),
               ],
             ),
           ),
@@ -464,7 +464,10 @@ class _GeneratedPapersScreenState extends State<GeneratedPapersScreen> {
       child: Text(
         label,
         style: TextStyle(
-            color: color, fontSize: 10, fontWeight: FontWeight.bold),
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
