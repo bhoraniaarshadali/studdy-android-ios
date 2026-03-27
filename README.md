@@ -141,11 +141,7 @@ An AI-powered exam platform for teachers and students. Teachers can create exams
 2. Install dependencies:
    flutter pub get
 
-3. Update API keys in:
-   - lib/services/kie_ai_service.dart (KIE.AI key)
-   - lib/main.dart (Supabase URL + anon key)
-
-4. Run the app:
+3. Run the app:
    flutter run
 
 ---
