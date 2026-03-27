@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/paper_section_model.dart';
 import '../models/generated_question_model.dart';
+import 'pdf_extractor_service.dart';
 
 class PaperGeneratorService {
   static const String _apiKey = '9c30f9d7b3eab8e83e6f5c7fbaa3cbb7';
@@ -11,69 +12,76 @@ class PaperGeneratorService {
       'https://api.kie.ai/gemini/v1/models/gemini-3-flash-v1betamodels:streamGenerateContent';
 
   // Step 1: Extract text from PDF
-  static Future<String> extractTextFromPDF(Uint8List pdfBytes) async {
+  static Future<Map<String, dynamic>> extractTextFromPDF(
+      Uint8List pdfBytes) async {
     try {
-      print('PAPER_GEN: Extracting text from PDF (${pdfBytes.length} bytes)');
-      final base64Pdf = base64Encode(pdfBytes);
+      print('PAPER_GEN: Using LOCAL PDF extraction');
+      final text = await PdfExtractorService.extractText(pdfBytes);
 
-      final response = await http
-          .post(
-        Uri.parse(_apiUrl),
-        headers: {
-          'Authorization': 'Bearer $_apiKey',
-          'Content-Type': 'application/json',
-        },
-        body: json.encode({
-          'stream': false,
-          'contents': [
-            {
-              'role': 'user',
-              'parts': [
-                {
-                  'inline_data': {
-                    'mime_type': 'application/pdf',
-                    'data': base64Pdf,
-                  },
-                },
-                {
-                  'text':
-                      'Extract ALL text content from this PDF completely and accurately. Return only the plain text with page numbers indicated like [Page 1], [Page 2] etc. Do not summarize - extract everything word by word.',
-                },
-              ],
-            },
-          ],
-        }),
-      )
-          .timeout(
-        const Duration(seconds: 60),
-        onTimeout: () {
-          print('PAPER_GEN: Extraction timed out');
-          throw Exception('PDF extraction timed out after 60 seconds');
-        },
-      );
+      final isSyllabus = PdfExtractorService.isLikelySyllabus(text);
+      final isChapter = PdfExtractorService.isLikelyChapterContent(text);
 
-      final data = json.decode(response.body);
-      String text = '';
+      String pdfType = 'unknown';
+      if (isSyllabus)
+        pdfType = 'syllabus';
+      else if (isChapter) pdfType = 'chapter';
 
-      // Robust parsing
-      try {
-        final candidates = data['candidates'];
-        if (candidates == null || candidates.isEmpty) {
-          throw Exception('No candidates in API response');
-        }
-        text = candidates[0]['content']['parts'][0]['text'] as String;
-      } catch (e) {
-        print('PAPER_GEN: Extraction parse error: $e');
-        print('PAPER_GEN: Response: ${response.body}');
-        throw Exception('Failed to parse extraction response');
-      }
+      print('PAPER_GEN: PDF type detected: $pdfType');
 
-      print('PAPER_GEN: Extracted ${text.length} characters from PDF');
-      return text;
+      return {
+        'text': text,
+        'type': pdfType,
+        'isSyllabus': isSyllabus,
+        'isChapter': isChapter,
+      };
     } catch (e) {
-      print('PAPER_GEN: PDF extraction ERROR - $e');
-      throw Exception('Failed to extract PDF content: $e');
+      print('PAPER_GEN: LOCAL extraction failed, falling back to API: $e');
+      // Fallback to API if local fails
+      final text = await _extractViaAPI(pdfBytes);
+      return {
+        'text': text,
+        'type': 'unknown',
+        'isSyllabus': false,
+        'isChapter': false,
+      };
     }
+  }
+
+  static Future<String> _extractViaAPI(Uint8List pdfBytes) async {
+    // Move existing API extraction code here as fallback
+    print('PAPER_GEN: Using API fallback for extraction');
+    final base64Pdf = base64Encode(pdfBytes);
+    final response = await http
+        .post(
+      Uri.parse(_apiUrl),
+      headers: {
+        'Authorization': 'Bearer $_apiKey',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode({
+        'stream': false,
+        'contents': [
+          {
+            'role': 'user',
+            'parts': [
+              {
+                'inline_data': {
+                  'mime_type': 'application/pdf',
+                  'data': base64Pdf,
+                }
+              },
+              {
+                'text':
+                    'Extract ALL text content from this PDF completely. Return only plain text with page numbers like [Page 1], [Page 2].'
+              }
+            ]
+          }
+        ]
+      }),
+    ).timeout(const Duration(seconds: 60));
+
+    final data = json.decode(response.body);
+    return data['candidates'][0]['content']['parts'][0]['text'] as String;
   }
 
   // Step 2: Generate questions for a section
@@ -81,37 +89,19 @@ class PaperGeneratorService {
     required String pdfContent,
     required PaperSection section,
     required String paperTitle,
+    String pdfType = 'unknown',
   }) async {
     try {
       print(
         'PAPER_GEN: Generating ${section.questionCount} ${section.questionType} questions for ${section.sectionName}',
       );
 
-      final questionTypeInstructions = _getQuestionTypeInstructions(
-        section.questionType,
+      final prompt = _buildPrompt(
+        pdfContent: pdfContent,
+        section: section,
+        paperTitle: paperTitle,
+        pdfType: pdfType,
       );
-
-      final prompt =
-          '''
-You are a strict exam paper generator. Generate exactly ${section.questionCount} questions for "${section.sectionName}".
-
-STRICT RULES - FOLLOW EXACTLY:
-1. Questions MUST come ONLY from the provided PDF content below
-2. Do NOT invent any facts, figures, or information not in the PDF
-3. If content is insufficient, generate fewer questions
-4. Every question must have a source reference (mention which part of PDF)
-5. Question type: ${section.questionType.toUpperCase()}
-6. Difficulty: ${section.difficulty}
-7. Marks per question: ${section.marksPerQuestion}
-
-${questionTypeInstructions}
-
-Return ONLY a valid JSON array with NO extra text, NO markdown, NO backticks:
-${_getJsonFormat(section.questionType)}
-
-PDF CONTENT (use ONLY this):
-$pdfContent
-''';
 
       final response = await http
           .post(
@@ -216,6 +206,7 @@ $pdfContent
     required List<PaperSection> sections,
     required String paperTitle,
     required String overallDifficulty,
+    String pdfType = 'unknown',
     void Function(String status, int current, int total)? onProgress,
   }) async {
     final List<GeneratedQuestion> allQuestions = [];
@@ -235,6 +226,7 @@ $pdfContent
         pdfContent: pdfContent,
         section: section,
         paperTitle: paperTitle,
+        pdfType: pdfType,
       );
       allQuestions.addAll(questions);
 
@@ -246,6 +238,69 @@ $pdfContent
       'PAPER_GEN: Full paper generated - total questions: ${allQuestions.length}',
     );
     return allQuestions;
+  }
+
+  static String _buildPrompt({
+    required String pdfContent,
+    required PaperSection section,
+    required String paperTitle,
+    required String pdfType,
+  }) {
+    String contextInstruction = '';
+
+    if (pdfType == 'syllabus') {
+      contextInstruction = '''
+IMPORTANT: This PDF appears to be a SYLLABUS/COURSE OUTLINE.
+- DO NOT ask questions about marks, credits, or course structure
+- DO NOT ask "What is the weightage of Unit X?"
+- DO NOT ask about reference books or textbook names
+- INSTEAD: Use the TOPICS listed in the syllabus to generate conceptual questions
+- Generate questions about the SUBJECT MATTER of the listed topics
+- Assume standard knowledge about those topics
+- Example: If syllabus says "Unit 2: Cloud Computing Basics", ask "What is cloud computing?" NOT "What are the marks for Unit 2?"
+''';
+    } else if (pdfType == 'chapter') {
+      contextInstruction = '''
+IMPORTANT: This PDF is CHAPTER/STUDY MATERIAL content.
+- Generate questions STRICTLY from the content provided
+- Use exact facts, figures, definitions from the text
+- Include page references where possible
+- Questions should test understanding of the actual content
+''';
+    } else {
+      contextInstruction = '''
+IMPORTANT: Generate questions based ONLY on the educational content in this PDF.
+- Focus on subject matter knowledge
+- Avoid questions about document structure or formatting
+- If the content is a syllabus/outline, generate questions about the topics mentioned
+''';
+    }
+
+    return '''
+You are a professional exam paper generator for educational institutions.
+
+$contextInstruction
+
+Generate exactly ${section.questionCount} questions for "${section.sectionName}".
+
+STRICT RULES:
+1. Questions must test SUBJECT KNOWLEDGE only
+2. NO questions about marks, credits, weightage, or course structure
+3. NO questions about reference books or authors (unless content is about literature)
+4. NO hallucinated facts - only use information from the PDF
+5. Question type: ${section.questionType.toUpperCase()}
+6. Difficulty: ${section.difficulty}
+7. Marks per question: ${section.marksPerQuestion}
+8. Every question must have a source reference
+
+${_getQuestionTypeInstructions(section.questionType)}
+
+Return ONLY valid JSON array, NO markdown, NO backticks:
+${_getJsonFormat(section.questionType)}
+
+PDF CONTENT:
+$pdfContent
+''';
   }
 
   static String _getQuestionTypeInstructions(String type) {
@@ -319,6 +374,31 @@ $pdfContent
       }
 
       // Step 2: Save paper metadata to database
+      // Check if paper with same title already exists
+      final existing = await db
+          .from('generated_papers')
+          .select('id')
+          .eq('title', title)
+          .limit(1);
+
+      if (existing.isNotEmpty) {
+        print('PAPER_SAVE: Paper already exists, updating instead of inserting');
+        // Update existing record
+        await db.from('generated_papers').update({
+          'questions': questions.map((q) => q.toJson()).toList(),
+          'answer_key': questions
+              .map((q) => {
+                    'question': q.questionText,
+                    'answer': q.answer,
+                    'marks': q.marks,
+                    'section': q.sectionName,
+                  })
+              .toList(),
+          'pdf_url': pdfUrl,
+        }).eq('id', existing[0]['id']);
+        return pdfUrl ?? '';
+      }
+
       final response = await db
           .from('generated_papers')
           .insert({
@@ -375,16 +455,30 @@ $pdfContent
       // Delete PDF from storage if exists
       if (pdfUrl != null && pdfUrl.isNotEmpty) {
         try {
+          // Extract filename from URL more robustly
           final uri = Uri.parse(pdfUrl);
-          final fileName = uri.pathSegments.last;
-          await db.storage.from('exam-papers').remove([fileName]);
-          print('PAPER_DELETE: PDF removed from storage: $fileName');
-        } catch (storageErr) {
-          print('PAPER_DELETE: Storage removal error (ignoring): $storageErr');
+          // URL format: .../storage/v1/object/public/exam-papers/FILENAME
+          final pathSegments = uri.pathSegments;
+          final bucketIndex = pathSegments.indexOf('exam-papers');
+
+          if (bucketIndex != -1 && bucketIndex + 1 < pathSegments.length) {
+            final fileName = pathSegments.sublist(bucketIndex + 1).join('/');
+            print('PAPER_DELETE: Deleting file from storage: $fileName');
+
+            await db.storage.from('exam-papers').remove([fileName]);
+
+            print('PAPER_DELETE: File deleted from storage successfully');
+          } else {
+            print('PAPER_DELETE: Could not extract filename from URL: $pdfUrl');
+          }
+        } catch (storageError) {
+          print(
+              'PAPER_DELETE: Storage deletion failed (continuing): $storageError');
+          // Continue with DB deletion even if storage deletion fails
         }
       }
 
-      // Delete from database
+      // Always delete from database
       await db.from('generated_papers').delete().eq('id', id);
       print('PAPER_DELETE: Paper deleted from DB: $id');
     } catch (e) {

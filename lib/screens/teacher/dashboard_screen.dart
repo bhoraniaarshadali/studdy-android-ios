@@ -444,6 +444,7 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
                         paper['difficulty']?.toUpperCase() ?? 'N/A',
                         Colors.grey,
                       ),
+                      _buildSmallBadge('AUTO-SAVED', Colors.green),
                       _buildSmallBadge(
                         paper['template']?.replaceAll('_', ' ').toUpperCase() ??
                             'N/A',

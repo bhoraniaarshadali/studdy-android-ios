@@ -18,6 +18,8 @@ class _ExamPaperGeneratorScreenState extends State<ExamPaperGeneratorScreen> {
   Uint8List? _pdfBytes;
   String? _pdfFileName;
   String _pdfContent = '';
+  String _pdfType = 'unknown';
+  bool _isSyllabus = false;
   bool _isExtractingPdf = false;
   bool _isGenerating = false;
   String _generationStatus = '';
@@ -122,15 +124,43 @@ class _ExamPaperGeneratorScreenState extends State<ExamPaperGeneratorScreen> {
     });
 
     try {
-      final text = await PaperGeneratorService.extractTextFromPDF(_pdfBytes!);
+      final result =
+          await PaperGeneratorService.extractTextFromPDF(_pdfBytes!);
       setState(() {
-        _pdfContent = text;
+        _pdfContent = result['text'] ?? '';
+        _pdfType = result['type'] ?? 'unknown';
+        _isSyllabus = result['isSyllabus'] ?? false;
         _isExtractingPdf = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PDF content extracted successfully!')),
-      );
-      print('PAPER_SCREEN: PDF extracted, length: ${_pdfContent.length}');
+
+      print('PAPER_SCREEN: PDF type: $_pdfType, isSyllabus: $_isSyllabus');
+
+      // Show warning if syllabus detected
+      if (_isSyllabus) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(children: [
+              Icon(Icons.info_outline, color: Colors.white),
+              SizedBox(width: 8),
+              Expanded(
+                  child: Text(
+                'Syllabus detected! Questions will be based on topics listed, not course structure.',
+              )),
+            ]),
+            backgroundColor: Colors.blue,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(
+                  'PDF content extracted! Type: ${_pdfType.toUpperCase()}')),
+        );
+      }
+
+      print(
+          'PAPER_SCREEN: PDF extracted, length: ${_pdfContent.length}, type: $_pdfType');
     } catch (e) {
       setState(() {
         _isExtractingPdf = false;
@@ -381,6 +411,7 @@ class _ExamPaperGeneratorScreenState extends State<ExamPaperGeneratorScreen> {
         sections: _sections,
         paperTitle: _titleController.text,
         overallDifficulty: _overallDifficulty,
+        pdfType: _pdfType,
         onProgress: (status, current, total) {
           setState(() {
             _generationStatus = status;
@@ -389,6 +420,22 @@ class _ExamPaperGeneratorScreenState extends State<ExamPaperGeneratorScreen> {
           });
         },
       );
+
+      setState(() {
+        _generationStatus = 'Saving paper to cloud...';
+      });
+
+      await PaperGeneratorService.savePaper(
+        title: _titleController.text.trim(),
+        totalMarks: _totalMarks,
+        sections: _sections,
+        questions: questions,
+        difficulty: _overallDifficulty,
+        template: _template,
+        pdfBytes: null, // PDF will be saved after export
+      );
+
+      print('PAPER_SCREEN: Paper auto-saved to DB');
 
       setState(() {
         _isGenerating = false;
