@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/supabase_service.dart';
 import 'create_exam_screen.dart';
 import 'exam_detail_screen.dart';
+import 'exam_paper_generator_screen.dart';
 import '../../widgets/error_widget.dart';
 import '../../widgets/loading_widget.dart';
 
@@ -14,6 +16,7 @@ class TeacherDashboardScreen extends StatefulWidget {
 
 class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
   List<Map<String, dynamic>> _exams = [];
+  List<Map<String, dynamic>> _generatedPapers = [];
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -28,13 +31,24 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
     setState(() => _isLoading = true);
     try {
       final result = await SupabaseService.getTeacherExams();
+
+      // Fetch generated papers
+      final papers = await Supabase.instance.client
+          .from('generated_papers')
+          .select('id, title, total_marks, difficulty, template, created_at')
+          .order('created_at', ascending: false)
+          .limit(5);
+
       if (!mounted) return;
       setState(() {
         _exams = result;
+        _generatedPapers = List<Map<String, dynamic>>.from(papers);
         _isLoading = false;
         _errorMessage = null;
       });
-      debugPrint('DASHBOARD: Loaded ${_exams.length} exams');
+      debugPrint(
+        'DASHBOARD: Loaded ${_exams.length} exams and ${_generatedPapers.length} generated papers',
+      );
     } catch (e) {
       debugPrint('DASHBOARD: ERROR - $e');
       if (mounted) {
@@ -50,8 +64,18 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
     try {
       final date = DateTime.parse(isoString).toLocal();
       final months = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
       ];
       return '${date.day.toString().padLeft(2, '0')} ${months[date.month - 1]} ${date.year}';
     } catch (e) {
@@ -79,7 +103,9 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
             onPressed: () async {
               await Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const CreateExamScreen()),
+                MaterialPageRoute(
+                  builder: (context) => const CreateExamScreen(),
+                ),
               );
               _loadExams();
             },
@@ -90,18 +116,12 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
       body: _isLoading
           ? const AppLoadingWidget(message: 'Loading exams...')
           : _errorMessage != null
-              ? AppErrorWidget(message: _errorMessage!, onRetry: _loadExams)
-              : _exams.isEmpty
-              ? _buildEmptyState()
-              : _buildMainContent(),
+          ? AppErrorWidget(message: _errorMessage!, onRetry: _loadExams)
+          : _exams.isEmpty
+          ? _buildEmptyState()
+          : _buildMainContent(),
       floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const CreateExamScreen()),
-          );
-          _loadExams();
-        },
+        onPressed: _showCreateOptions,
         backgroundColor: Colors.blueAccent,
         child: const Icon(Icons.add, color: Colors.white),
       ),
@@ -113,11 +133,19 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.assignment_outlined, size: 80, color: Colors.grey.shade300),
+          Icon(
+            Icons.assignment_outlined,
+            size: 80,
+            color: Colors.grey.shade300,
+          ),
           const SizedBox(height: 16),
           const Text(
             'No exams yet',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.grey),
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey,
+            ),
           ),
           const SizedBox(height: 8),
           const Text(
@@ -129,7 +157,9 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
             onPressed: () async {
               await Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const CreateExamScreen()),
+                MaterialPageRoute(
+                  builder: (context) => const CreateExamScreen(),
+                ),
               );
               _loadExams();
             },
@@ -146,20 +176,293 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
   }
 
   Widget _buildMainContent() {
-    return Column(
-      children: [
-        _buildStatsRow(),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _exams.length,
-            itemBuilder: (context, index) {
-              final exam = _exams[index];
-              return _buildExamCard(exam);
-            },
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildActionCards(),
+          _buildStatsRow(),
+          if (_exams.isNotEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Text(
+                'Recent Exams',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+            ..._exams
+                .map(
+                  (exam) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    child: _buildExamCard(exam),
+                  ),
+                )
+                .toList(),
+          ],
+          if (_generatedPapers.isNotEmpty) _buildGeneratedPapersSection(),
+          const SizedBox(height: 80), // Space for FAB
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionCards() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Row(
+        children: [
+          _buildActionCard(
+            'Create Exam',
+            'AI MCQ Exam',
+            Icons.quiz,
+            Colors.blue,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CreateExamScreen()),
+            ).then((_) => _loadExams()),
+          ),
+          const SizedBox(width: 12),
+          _buildActionCard(
+            'Generate Paper',
+            'AI paper from PDF',
+            Icons.description,
+            Colors.orange,
+            () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const ExamPaperGeneratorScreen(),
+              ),
+            ).then((_) => _loadExams()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionCard(
+    String title,
+    String subtitle,
+    IconData icon,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, color: color, size: 32),
+                const SizedBox(height: 12),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Colors.grey, fontSize: 10),
+                ),
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  void _showCreateOptions() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Create New',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 20),
+            _buildOptionTile(
+              title: 'Create MCQ Exam',
+              subtitle: 'AI generates MCQ questions',
+              icon: Icons.quiz,
+              color: Colors.blue,
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CreateExamScreen()),
+                ).then((_) => _loadExams());
+              },
+            ),
+            const Divider(height: 32),
+            _buildOptionTile(
+              title: 'Generate Exam Paper',
+              subtitle: 'Full paper with sections from PDF',
+              icon: Icons.description,
+              color: Colors.orange,
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ExamPaperGeneratorScreen(),
+                  ),
+                ).then((_) => _loadExams());
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOptionTile({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(icon, color: color),
+      ),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+      subtitle: Text(
+        subtitle,
+        style: const TextStyle(fontSize: 12, color: Colors.grey),
+      ),
+      trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+      onTap: onTap,
+    );
+  }
+
+  Widget _buildGeneratedPapersSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: Row(
+            children: [
+              Icon(Icons.description, color: Colors.orange, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Generated Papers',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ],
+          ),
+        ),
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          itemCount: _generatedPapers.length,
+          itemBuilder: (context, index) {
+            final paper = _generatedPapers[index];
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: ListTile(
+                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Paper viewer coming soon')),
+                ),
+                title: Text(
+                  paper['title'] ?? 'Untitled Paper',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      _buildSmallBadge(
+                        paper['difficulty']?.toUpperCase() ?? 'N/A',
+                        Colors.grey,
+                      ),
+                      _buildSmallBadge(
+                        paper['template']?.replaceAll('_', ' ').toUpperCase() ??
+                            'N/A',
+                        Colors.blue,
+                      ),
+                      Text(
+                        _formatDate(paper['created_at']),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                trailing: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${paper['total_marks']}M',
+                    style: const TextStyle(
+                      color: Colors.orange,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
       ],
+    );
+  }
+
+  Widget _buildSmallBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 
@@ -197,7 +500,11 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
             children: [
               Text(
                 value,
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blueAccent),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blueAccent,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -217,7 +524,9 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
     final published = exam['results_published'] ?? false;
     final code = exam['code'] ?? '------';
     final title = exam['title'] ?? 'No Title';
-    final date = exam['created_at'] != null ? _formatDate(exam['created_at']) : 'No Date';
+    final date = exam['created_at'] != null
+        ? _formatDate(exam['created_at'])
+        : 'No Date';
     final studentCount = exam['student_count'] ?? 0;
 
     return Card(
@@ -242,7 +551,10 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
                 Expanded(
                   child: Text(
                     title,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -274,16 +586,30 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.calendar_today, size: 14, color: Colors.grey),
+                    const Icon(
+                      Icons.calendar_today,
+                      size: 14,
+                      color: Colors.grey,
+                    ),
                     const SizedBox(width: 4),
-                    Text(date, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    Text(
+                      date,
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
                   ],
                 ),
                 Row(
                   children: [
-                    const Icon(Icons.people_alt_outlined, size: 14, color: Colors.grey),
+                    const Icon(
+                      Icons.people_alt_outlined,
+                      size: 14,
+                      color: Colors.grey,
+                    ),
                     const SizedBox(width: 4),
-                    Text('$studentCount students', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    Text(
+                      '$studentCount students',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
                   ],
                 ),
               ],
@@ -303,7 +629,11 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
       ),
       child: Text(
         code,
-        style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12),
+        style: const TextStyle(
+          color: Colors.blueAccent,
+          fontWeight: FontWeight.bold,
+          fontSize: 12,
+        ),
       ),
     );
   }
@@ -317,17 +647,18 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
       ),
       child: Text(
         text,
-        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
 
   Widget _buildStatusBadge(String mode, bool published) {
     if (mode == 'instant' || published) {
-      return _buildBadge(
-        published ? 'PUBLISHED' : 'INSTANT',
-        Colors.green,
-      );
+      return _buildBadge(published ? 'PUBLISHED' : 'INSTANT', Colors.green);
     }
     return _buildBadge('PENDING', Colors.orange);
   }
@@ -352,7 +683,11 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
             const SizedBox(width: 4),
             Text(
               '${exam['duration_minutes']} min limit',
-              style: TextStyle(color: Colors.blue.shade700, fontSize: 10, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: Colors.blue.shade700,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ],
         ),
@@ -373,7 +708,8 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
         if (now.isBefore(start)) {
           bgColor = Colors.orange.shade50;
           textColor = Colors.orange.shade700;
-          text = 'Starts ${start.day}/${start.month} ${start.hour}:${start.minute.toString().padLeft(2, '0')}';
+          text =
+              'Starts ${start.day}/${start.month} ${start.hour}:${start.minute.toString().padLeft(2, '0')}';
           icon = Icons.schedule;
         } else if (now.isAfter(end)) {
           bgColor = Colors.grey.shade100;
@@ -383,7 +719,8 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
         } else {
           bgColor = Colors.green.shade50;
           textColor = Colors.green.shade700;
-          text = 'Live until ${end.hour}:${end.minute.toString().padLeft(2, '0')}';
+          text =
+              'Live until ${end.hour}:${end.minute.toString().padLeft(2, '0')}';
           icon = Icons.sensors;
         }
 
@@ -400,7 +737,11 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
               const SizedBox(width: 4),
               Text(
                 text,
-                style: TextStyle(color: textColor, fontSize: 10, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),

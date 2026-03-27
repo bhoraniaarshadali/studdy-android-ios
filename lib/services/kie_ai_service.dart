@@ -5,7 +5,7 @@ import '../models/question_model.dart';
 
 class KieAiService {
   static const String _baseUrl = 'https://api.kie.ai/gemini/v1/models/gemini-3-flash-v1betamodels:streamGenerateContent';
-  static const String _bearerToken = '2d4fb913866d594231cf9ad1f3625a32';
+  static const String _bearerToken = '3d5375bb280114a132df1212a4d5c275';
 
   static Future<List<QuestionModel>> generateQuestions({
     required String content,
