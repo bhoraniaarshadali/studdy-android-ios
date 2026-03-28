@@ -92,6 +92,16 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
     }
     
     print('TIMER: Started - mode: $_timerMode, seconds: $_remainingSeconds');
+
+    // Create exam session when student starts exam
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await SupabaseService.createExamSession(
+        widget.examCode,
+        widget.enrollmentNumber,
+        widget.enrollmentNumber, // name fallback
+      );
+      print('EXAM: Session created for ${widget.enrollmentNumber}');
+    });
   }
 
   @override
@@ -468,6 +478,13 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
         _examSubmitted = true;
         _resultsPublished = isPublished;
       });
+
+      // Update session to submitted
+      await SupabaseService.updateExamSessionSubmitted(
+        widget.examCode,
+        widget.enrollmentNumber,
+      );
+      print('EXAM: Session marked as submitted');
     } catch (e) {
       debugPrint('EXAM: Submit ERROR - $e');
       if (mounted) {

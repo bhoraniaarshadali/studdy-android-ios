@@ -440,4 +440,77 @@ class SupabaseService {
       throw Exception('Failed to save result: $e');
     }
   }
+
+  // Create or update exam session (tracking who joined)
+  static Future<void> createExamSession(String examCode, String enrollmentNumber, String studentName) async {
+    try {
+      // Check if session already exists
+      final existing = await _client
+        .from('exam_sessions')
+        .select('id')
+        .eq('exam_code', examCode)
+        .eq('enrollment_number', enrollmentNumber)
+        .limit(1);
+      
+      if (existing.isNotEmpty) {
+        // Update existing session to active
+        await _client
+          .from('exam_sessions')
+          .update({
+            'status': 'active', 
+            'joined_at': DateTime.now().toUtc().toIso8601String(),
+            'student_name': studentName
+          })
+          .eq('exam_code', examCode)
+          .eq('enrollment_number', enrollmentNumber);
+        print('SESSION: Updated existing session for $enrollmentNumber in $examCode');
+        return;
+      }
+      
+      await _client.from('exam_sessions').insert({
+        'exam_code': examCode,
+        'enrollment_number': enrollmentNumber,
+        'student_name': studentName,
+        'status': 'active',
+        'joined_at': DateTime.now().toUtc().toIso8601String(),
+      });
+      print('SESSION: Created session for $enrollmentNumber in exam $examCode');
+    } catch(e) {
+      print('SESSION: Error creating session - $e');
+      // Don't throw - session tracking failure should not block exam
+    }
+  }
+
+  // Mark session as submitted
+  static Future<void> updateExamSessionSubmitted(String examCode, String enrollmentNumber) async {
+    try {
+      await _client
+        .from('exam_sessions')
+        .update({
+          'status': 'submitted',
+          'submitted_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('exam_code', examCode)
+        .eq('enrollment_number', enrollmentNumber);
+      print('SESSION: Marked submitted for $enrollmentNumber in $examCode');
+    } catch(e) {
+      print('SESSION: Error updating session - $e');
+    }
+  }
+
+  // Get all session info for an exam
+  static Future<List<Map<String, dynamic>>> getExamSessions(String examCode) async {
+    try {
+      final response = await _client
+        .from('exam_sessions')
+        .select('*')
+        .eq('exam_code', examCode)
+        .order('joined_at', ascending: false);
+      print('SESSION: Fetched ${response.length} sessions for $examCode');
+      return List<Map<String, dynamic>>.from(response);
+    } catch(e) {
+      print('SESSION: Error fetching sessions - $e');
+      return [];
+    }
+  }
 }

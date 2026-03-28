@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 import '../../widgets/loading_widget.dart';
+import '../../services/supabase_service.dart';
 
 class LiveExamMonitorScreen extends StatefulWidget {
   final Map<String, dynamic> exam;
@@ -14,30 +15,25 @@ class LiveExamMonitorScreen extends StatefulWidget {
 
 class _LiveExamMonitorScreenState extends State<LiveExamMonitorScreen> {
   List<Map<String, dynamic>> _liveResults = [];
+  List<Map<String, dynamic>> _sessions = [];
   int _totalJoined = 0;
   int _totalSubmitted = 0;
+  int _activeStudents = 0;
   int _suspiciousCount = 0;
   bool _isLoading = true;
   RealtimeChannel? _realtimeChannel;
-  final DateTime _monitorStartTime = DateTime.now();
-  Timer? _elapsedTimer;
-  int _elapsedSeconds = 0;
 
   @override
   void initState() {
     super.initState();
     _loadInitialData();
     _subscribeToRealtime();
-    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() => _elapsedSeconds++);
-    });
     print('MONITOR: Screen opened for exam: ${widget.exam['code']}');
   }
 
   @override
   void dispose() {
     _realtimeChannel?.unsubscribe();
-    _elapsedTimer?.cancel();
     print('MONITOR: Unsubscribed from realtime');
     super.dispose();
   }
@@ -50,15 +46,19 @@ class _LiveExamMonitorScreenState extends State<LiveExamMonitorScreen> {
           .eq('exam_code', widget.exam['code'])
           .order('created_at', ascending: false);
 
+      final sessions = await SupabaseService.getExamSessions(widget.exam['code']);
+
       setState(() {
         _liveResults = List<Map<String, dynamic>>.from(results);
-        _totalSubmitted = _liveResults.length;
-        _totalJoined = _liveResults.length;
+        _sessions = List<Map<String, dynamic>>.from(sessions);
+        _totalJoined = _sessions.length;
+        _activeStudents = _sessions.where((s) => s['status'] == 'active').length;
+        _totalSubmitted = _sessions.where((s) => s['status'] == 'submitted').length;
         _suspiciousCount = _liveResults.where((r) =>
             ((r['warnings'] ?? 0) as int) + ((r['app_switches'] ?? 0) as int) >= 3).length;
         _isLoading = false;
       });
-      print('MONITOR: Initial data loaded - ${_liveResults.length} results');
+      print('MONITOR: Loaded ${_liveResults.length} results, ${_sessions.length} sessions');
     } catch (e) {
       print('MONITOR: Load error - $e');
       setState(() => _isLoading = false);
@@ -68,6 +68,7 @@ class _LiveExamMonitorScreenState extends State<LiveExamMonitorScreen> {
   void _subscribeToRealtime() {
     _realtimeChannel = Supabase.instance.client
         .channel('exam_monitor_${widget.exam['code']}')
+        // Listen to Results
         .onPostgresChanges(
           event: PostgresChangeEvent.insert,
           schema: 'public',
@@ -78,17 +79,14 @@ class _LiveExamMonitorScreenState extends State<LiveExamMonitorScreen> {
             value: widget.exam['code'],
           ),
           callback: (payload) {
-            print('MONITOR: New result received: ${payload.newRecord}');
+            print('MONITOR: New result received: ${payload.newRecord['enrollment_number']}');
             final newResult = payload.newRecord;
             setState(() {
               _liveResults.insert(0, newResult);
-              _totalSubmitted = _liveResults.length;
-              _totalJoined = _liveResults.length;
               _suspiciousCount = _liveResults.where((r) =>
                   ((r['warnings'] ?? 0) as int) + ((r['app_switches'] ?? 0) as int) >= 3).length;
             });
 
-            // Show notification for suspicious student
             final warnings = (newResult['warnings'] ?? 0) as int;
             final switches = (newResult['app_switches'] ?? 0) as int;
             if (warnings + switches >= 3) {
@@ -109,38 +107,90 @@ class _LiveExamMonitorScreenState extends State<LiveExamMonitorScreen> {
             }
           },
         )
+        // Listen to Sessions - Insert
         .onPostgresChanges(
-          event: PostgresChangeEvent.update,
+          event: PostgresChangeEvent.insert,
           schema: 'public',
-          table: 'results',
+          table: 'exam_sessions',
           filter: PostgresChangeFilter(
             type: PostgresChangeFilterType.eq,
             column: 'exam_code',
             value: widget.exam['code'],
           ),
           callback: (payload) {
-            print('MONITOR: Result updated: ${payload.newRecord}');
-            final updatedResult = payload.newRecord;
+            print('MONITOR: New student joined: ${payload.newRecord['enrollment_number']}');
+            final newSession = payload.newRecord;
             setState(() {
-              final index = _liveResults.indexWhere((r) => r['id'] == updatedResult['id']);
-              if (index != -1) {
-                _liveResults[index] = updatedResult;
-              }
+              _sessions.insert(0, newSession);
+              _totalJoined = _sessions.length;
+              _activeStudents = _sessions.where((s) => s['status'] == 'active').length;
+              _totalSubmitted = _sessions.where((s) => s['status'] == 'submitted').length;
             });
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(children: [
+                  const Icon(Icons.person_add, color: Colors.white, size: 18),
+                  const SizedBox(width: 8),
+                  Text('${newSession['student_name'] ?? newSession['enrollment_number']} joined the exam!'),
+                ]),
+                backgroundColor: Colors.blue,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          },
+        )
+        // Listen to Sessions - Update
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'exam_sessions',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'exam_code',
+            value: widget.exam['code'],
+          ),
+          callback: (payload) {
+            print('MONITOR: Session updated: ${payload.newRecord['enrollment_number']} -> ${payload.newRecord['status']}');
+            final updated = payload.newRecord;
+            setState(() {
+              final index = _sessions.indexWhere((s) => s['enrollment_number'] == updated['enrollment_number']);
+              if (index != -1) {
+                _sessions[index] = updated;
+              }
+              _activeStudents = _sessions.where((s) => s['status'] == 'active').length;
+              _totalSubmitted = _sessions.where((s) => s['status'] == 'submitted').length;
+            });
+
+            if (updated['status'] == 'submitted') {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(children: [
+                    const Icon(Icons.task_alt, color: Colors.white, size: 18),
+                    const SizedBox(width: 8),
+                    Text('${updated['student_name'] ?? updated['enrollment_number']} submitted!'),
+                  ]),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 3),
+                ),
+              );
+            }
           },
         )
         .subscribe();
 
-    print('MONITOR: Subscribed to realtime for exam: ${widget.exam['code']}');
+    print('MONITOR: All realtime hooks subscribed for exam: ${widget.exam['code']}');
   }
 
-  String _formatElapsed() {
-    final h = _elapsedSeconds ~/ 3600;
-    final m = (_elapsedSeconds % 3600) ~/ 60;
-    final s = _elapsedSeconds % 60;
-    if (h > 0) return '${h}h ${m}m ${s}s';
-    if (m > 0) return '${m}m ${s}s';
-    return '${s}s';
+  String _formatJoinTime(String? joinedAt) {
+    if (joinedAt == null) return '';
+    try {
+      final dt = DateTime.parse(joinedAt).toLocal();
+      final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+      final amPm = dt.hour >= 12 ? 'PM' : 'AM';
+      return '${h.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} $amPm';
+    } catch (e) {
+      return '';
+    }
   }
 
   @override
@@ -174,18 +224,26 @@ class _LiveExamMonitorScreenState extends State<LiveExamMonitorScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: _isLoading ? const Center(child: AppLoadingWidget(message: 'Loading live data...')) : SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildStatsGrid(),
             const SizedBox(height: 24),
-            _buildExamInfoCard(),
-            const SizedBox(height: 24),
-            _buildLiveFeedHeader(),
+            Text(
+              'CURRENTLY TAKING EXAM',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 12),
-            _buildLiveResultsList(),
+            _buildActiveStudentsSection(),
+            const SizedBox(height: 32),
+            Text(
+              'SUBMITTED',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            _buildSubmittedSection(),
           ],
         ),
       ),
@@ -193,164 +251,87 @@ class _LiveExamMonitorScreenState extends State<LiveExamMonitorScreen> {
   }
 
   Widget _buildStatsGrid() {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      childAspectRatio: 1.5,
+    return Row(
       children: [
-        _buildMetricCard(
-          icon: Icons.people,
-          color: Colors.blue,
-          value: '$_totalJoined',
-          label: 'Joined',
-        ),
-        _buildMetricCard(
-          icon: Icons.task_alt,
-          color: Colors.green,
-          value: '$_totalSubmitted',
-          label: 'Submitted',
-        ),
-        _buildMetricCard(
-          icon: Icons.gpp_bad,
-          color: Colors.red,
-          value: '$_suspiciousCount',
-          label: 'High Risk',
-        ),
-        _buildMetricCard(
-          icon: Icons.timer,
-          color: Colors.purple,
-          value: _formatElapsed(),
-          label: 'Monitoring',
-        ),
+        _buildMetricCard(icon: Icons.people, color: Colors.blue, value: '$_totalJoined', label: 'Joined'),
+        const SizedBox(width: 8),
+        _buildMetricCard(icon: Icons.pending_actions, color: Colors.orange, value: '$_activeStudents', label: 'In Progress'),
+        const SizedBox(width: 8),
+        _buildMetricCard(icon: Icons.task_alt, color: Colors.green, value: '$_totalSubmitted', label: 'Submitted'),
       ],
     );
   }
 
-  Widget _buildMetricCard({
-    required IconData icon,
-    required Color color,
-    required String value,
-    required String label,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: color, size: 24),
-          const SizedBox(height: 8),
-          FittedBox(
-            child: Text(
-              value,
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color),
-            ),
-          ),
-          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildExamInfoCard() {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+  Widget _buildMetricCard({required IconData icon, required Color color, required String value, required String label}) {
+    return Expanded(
+      child: Container(
+        height: 100,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              widget.exam['title'] ?? 'N/A',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                _buildBadge(widget.exam['code'], Colors.blue),
-                const SizedBox(width: 8),
-                _buildBadge(widget.exam['timer_mode']?.toString().toUpperCase() ?? 'NONE', Colors.purple),
-                const SizedBox(width: 8),
-                _buildBadge(widget.exam['result_mode']?.toString().toUpperCase() ?? 'INSTANT', Colors.orange),
-              ],
-            ),
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 6),
+            Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
+            Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildBadge(String text, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-
-  Widget _buildLiveFeedHeader() {
-    return Row(
-      children: [
-        _PulsingDot(),
-        const SizedBox(width: 8),
-        const Text(
-          'Live Submissions',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const Spacer(),
-        Text('${_liveResults.length} total', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-      ],
-    );
-  }
-
-  Widget _buildLiveResultsList() {
-    if (_isLoading) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 40),
-        child: AppLoadingWidget(message: 'Initializing monitor...'),
+  Widget _buildActiveStudentsSection() {
+    final activeSessions = _sessions.where((s) => s['status'] == 'active').toList();
+    if (activeSessions.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
+        child: const Center(child: Text('No students currently taking exam', style: TextStyle(color: Colors.grey, fontSize: 13))),
       );
     }
 
+    return Column(
+      children: activeSessions.map((session) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
+          child: Row(
+            children: [
+              _PulsingDot(),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(session['student_name'] ?? session['enrollment_number'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text('Joined ${(_formatJoinTime(session['joined_at']))}', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(6)),
+                child: const Text('In Progress', style: TextStyle(color: Colors.orange, fontSize: 10, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildSubmittedSection() {
     if (_liveResults.isEmpty) {
       return Container(
-        padding: const EdgeInsets.all(40),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200),
-        ),
-        child: const Column(
-          children: [
-            Icon(Icons.hourglass_empty, size: 48, color: Colors.grey),
-            const SizedBox(height: 16),
-            Text(
-              'Waiting for students...',
-              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Results will appear here in real-time',
-              style: TextStyle(color: Colors.grey, fontSize: 12),
-            ),
-          ],
-        ),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
+        child: const Center(child: Text('No submissions yet', style: TextStyle(color: Colors.grey, fontSize: 13))),
       );
     }
 
@@ -369,91 +350,34 @@ class _LiveExamMonitorScreenState extends State<LiveExamMonitorScreen> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: totalViolations >= 3
-                  ? Colors.red.shade300
-                  : totalViolations > 0
-                      ? Colors.orange.shade300
-                      : Colors.grey.shade200,
-              width: totalViolations >= 3 ? 1.5 : 1,
-            ),
-            boxShadow: [
-              if (totalViolations >= 3)
-                BoxShadow(
-                  color: Colors.red.withOpacity(0.05),
-                  blurRadius: 4,
-                  spreadRadius: 1,
-                ),
-            ],
+            border: Border.all(color: totalViolations >= 3 ? Colors.red.shade300 : Colors.grey.shade200),
           ),
           child: Row(
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: totalViolations >= 3
-                      ? Colors.red.shade50
-                      : percentage >= 60
-                          ? Colors.green.shade50
-                          : Colors.orange.shade50,
-                  shape: BoxShape.circle,
-                ),
-                child: Center(
-                  child: Text(
-                    '${_liveResults.indexOf(result) + 1}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: totalViolations >= 3
-                          ? Colors.red
-                          : percentage >= 60
-                              ? Colors.green
-                              : Colors.orange,
-                    ),
-                  ),
-                ),
-              ),
+              const Icon(Icons.check_circle, color: Colors.green, size: 18),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      result['student_name'] ?? result['enrollment_number'] ?? 'Unknown',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                    ),
-                    Text(
-                      result['enrollment_number'] ?? '',
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
+                    Text(result['student_name'] ?? result['enrollment_number'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text(result['enrollment_number'] ?? '', style: const TextStyle(color: Colors.grey, fontSize: 12)),
                   ],
                 ),
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    '$score/$total',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: percentage >= 60 ? Colors.green : Colors.red,
-                    ),
-                  ),
+                  Text('$score/$total', style: TextStyle(fontWeight: FontWeight.bold, color: percentage >= 60 ? Colors.green : Colors.red)),
                   Text('$percentage%', style: const TextStyle(color: Colors.grey, fontSize: 12)),
                 ],
               ),
               if (totalViolations > 0) ...[
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: totalViolations >= 3 ? Colors.red : Colors.orange,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '${totalViolations}⚠',
-                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(color: totalViolations >= 3 ? Colors.red : Colors.orange, borderRadius: BorderRadius.circular(8)),
+                  child: Text('${totalViolations}⚠', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
                 ),
               ],
             ],
