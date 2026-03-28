@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/paper_section_model.dart';
 import '../models/generated_question_model.dart';
-import 'pdf_extractor_service.dart';
+import 'pdf_extraction_service.dart';
 
 class PaperGeneratorService {
   static const String _apiKey = '9c30f9d7b3eab8e83e6f5c7fbaa3cbb7';
@@ -12,76 +12,16 @@ class PaperGeneratorService {
       'https://api.kie.ai/gemini/v1/models/gemini-3-flash-v1betamodels:streamGenerateContent';
 
   // Step 1: Extract text from PDF
-  static Future<Map<String, dynamic>> extractTextFromPDF(
-      Uint8List pdfBytes) async {
+  static Future<String> extractTextFromPDF(Uint8List pdfBytes) async {
     try {
-      print('PAPER_GEN: Using LOCAL PDF extraction');
-      final text = await PdfExtractorService.extractText(pdfBytes);
-
-      final isSyllabus = PdfExtractorService.isLikelySyllabus(text);
-      final isChapter = PdfExtractorService.isLikelyChapterContent(text);
-
-      String pdfType = 'unknown';
-      if (isSyllabus)
-        pdfType = 'syllabus';
-      else if (isChapter) pdfType = 'chapter';
-
-      print('PAPER_GEN: PDF type detected: $pdfType');
-
-      return {
-        'text': text,
-        'type': pdfType,
-        'isSyllabus': isSyllabus,
-        'isChapter': isChapter,
-      };
+      print('PAPER_GEN: Using Syncfusion for local PDF extraction');
+      final result = await PdfExtractionService.extractTextWithMetadata(pdfBytes);
+      print('PAPER_GEN: Extracted ${result['total_pages']} pages, ${result['total_chars']} chars');
+      return result['text'] as String;
     } catch (e) {
-      print('PAPER_GEN: LOCAL extraction failed, falling back to API: $e');
-      // Fallback to API if local fails
-      final text = await _extractViaAPI(pdfBytes);
-      return {
-        'text': text,
-        'type': 'unknown',
-        'isSyllabus': false,
-        'isChapter': false,
-      };
+      print('PAPER_GEN: Extraction ERROR - $e');
+      throw Exception('Failed to extract PDF: $e');
     }
-  }
-
-  static Future<String> _extractViaAPI(Uint8List pdfBytes) async {
-    // Move existing API extraction code here as fallback
-    print('PAPER_GEN: Using API fallback for extraction');
-    final base64Pdf = base64Encode(pdfBytes);
-    final response = await http
-        .post(
-      Uri.parse(_apiUrl),
-      headers: {
-        'Authorization': 'Bearer $_apiKey',
-        'Content-Type': 'application/json',
-      },
-      body: json.encode({
-        'stream': false,
-        'contents': [
-          {
-            'role': 'user',
-            'parts': [
-              {
-                'inline_data': {
-                  'mime_type': 'application/pdf',
-                  'data': base64Pdf,
-                }
-              },
-              {
-                'text':
-                    'Extract ALL text content from this PDF completely. Return only plain text with page numbers like [Page 1], [Page 2].'
-              }
-            ]
-          }
-        ]
-      }),
-    ).timeout(const Duration(seconds: 60));
-
-    final data = json.decode(response.body);
-    return data['candidates'][0]['content']['parts'][0]['text'] as String;
   }
 
   // Step 2: Generate questions for a section

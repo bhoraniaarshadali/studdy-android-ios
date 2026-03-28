@@ -124,12 +124,18 @@ class _ExamPaperGeneratorScreenState extends State<ExamPaperGeneratorScreen> {
     });
 
     try {
-      final result =
+      final text =
           await PaperGeneratorService.extractTextFromPDF(_pdfBytes!);
+      
+      // Basic syllabus detection since we moved away from the old service structure
+      final bool detectedSyllabus = text.toLowerCase().contains('syllabus') || 
+                                   text.toLowerCase().contains('course outline') ||
+                                   text.toLowerCase().contains('unit 1');
+
       setState(() {
-        _pdfContent = result['text'] ?? '';
-        _pdfType = result['type'] ?? 'unknown';
-        _isSyllabus = result['isSyllabus'] ?? false;
+        _pdfContent = text;
+        _pdfType = detectedSyllabus ? 'syllabus' : 'chapter';
+        _isSyllabus = detectedSyllabus;
         _isExtractingPdf = false;
       });
 

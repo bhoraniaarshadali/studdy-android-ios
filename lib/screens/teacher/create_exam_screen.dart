@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/services.dart';
 import '../../models/question_model.dart';
 import '../../services/kie_ai_service.dart';
+import '../../services/pdf_extraction_service.dart';
 import '../../services/supabase_service.dart';
 import 'review_questions_screen.dart';
 import 'exam_published_screen.dart';
@@ -63,58 +64,23 @@ class _CreateExamScreenState extends State<CreateExamScreen> {
   }
 
   Future<String> _extractTextFromPDF() async {
-    if (_pdfBytes == null) return '';
-
-    debugPrint('PDF_EXTRACT: Starting extraction');
-    debugPrint('PDF_EXTRACT: PDF bytes size: ${_pdfBytes?.length}');
-    setState(() => _statusText = 'Extracting PDF content...');
-    final base64String = base64Encode(_pdfBytes!);
-    debugPrint('PDF_EXTRACT: Base64 string length: ${base64String.length}');
-
     try {
-      debugPrint('PDF_EXTRACT: Sending request to KIE API');
-      final response = await http.post(
-        Uri.parse('https://api.kie.ai/gemini/v1/models/gemini-3-flash-v1betamodels:streamGenerateContent'),
-        headers: {
-          'Authorization': 'Bearer 2d4fb913866d594231cf9ad1f3625a32',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          "stream": false,
-          "contents": [
-            {
-              "role": "user",
-              "parts": [
-                {
-                  "inline_data": {
-                    "mime_type": "application/pdf",
-                    "data": base64String
-                  }
-                },
-                {
-                  "text": "Extract all text content from this PDF. Return only plain text, no formatting, no markdown."
-                }
-              ]
-            }
-          ]
-        }),
-      );
-
-      debugPrint('PDF_EXTRACT: Response status: ${response.statusCode}');
-      debugPrint('PDF_EXTRACT: Raw response: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> data = jsonDecode(response.body);
-        final String text = data['candidates'][0]['content']['parts'][0]['text'];
-        debugPrint('PDF_EXTRACT: Extracted text preview: ${text.substring(0, text.length > 200 ? 200 : text.length)}');
-        debugPrint('PDF_EXTRACT: Total text length: ${text.length}');
-        return text;
-      } else {
-        throw Exception('Failed to extract PDF text: ${response.statusCode}');
-      }
+      print('CREATE_EXAM: Extracting PDF using Syncfusion locally');
+      setState(() => _statusText = 'Extracting PDF content...');
+      
+      final result = await PdfExtractionService.extractTextWithMetadata(_pdfBytes!);
+      
+      final String text = result['text'] as String;
+      final int pages = result['total_pages'] as int;
+      final int chars = result['total_chars'] as int;
+      
+      print('CREATE_EXAM: PDF extracted - $pages pages, $chars chars');
+      setState(() => _statusText = 'Extracted $pages pages ($chars characters)');
+      
+      return text;
     } catch (e) {
-      debugPrint('PDF_EXTRACT: ERROR - $e');
-      rethrow;
+      print('CREATE_EXAM: PDF extraction ERROR - $e');
+      throw Exception('Failed to extract PDF: $e');
     }
   }
 
