@@ -5,6 +5,8 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:camera/camera.dart';
 import 'package:no_screenshot/no_screenshot.dart';
 import 'dart:async';
+import 'dart:io';
+import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import '../../models/question_model.dart';
 import '../../services/supabase_service.dart';
 import '../auth/login_screen.dart';
@@ -47,7 +49,10 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
   bool _examPaused = false;
   bool _cameraInitialized = false;
   CameraController? _cameraController;
+  FaceDetector? _faceDetector;
   bool _faceDetected = true;
+  int _noFaceCount = 0;
+  static const int _maxNoFaceCount = 3;
   Timer? _faceCheckTimer;
   int _appSwitchCount = 0;
 
@@ -112,8 +117,10 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
     _countdownTimer?.cancel();
     _faceCheckTimer?.cancel();
     _cameraController?.dispose();
+    _faceDetector?.close();
     WidgetsBinding.instance.removeObserver(this);
     print('ANTICHEAT: All proctoring disposed');
+    print('FACE: FaceDetector closed');
     super.dispose();
   }
 
@@ -203,48 +210,142 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
       }
       print('ANTICHEAT: Front camera initialized for proctoring');
       
+      _faceDetector = FaceDetector(
+        options: FaceDetectorOptions(
+          enableClassification: true,
+          minFaceSize: 0.1,
+          performanceMode: FaceDetectorMode.fast,
+        ),
+      );
+      print('FACE: FaceDetector initialized');
+      
       // Start face check every 5 seconds
-      _faceCheckTimer = Timer.periodic(const Duration(seconds: 5), (_) => _checkFacePresence());
+      _faceCheckTimer = Timer.periodic(const Duration(seconds: 5), (_) => _checkFaceWithMLKit());
     } catch (e) {
       print('ANTICHEAT: Camera init failed: $e');
     }
   }
 
-  Future<void> _checkFacePresence() async {
-    // Basic check - camera stream active matlab student present hai
-    if (_cameraController == null || !_cameraController!.value.isInitialized) return;
-    if (_examSubmitted || _examPaused) return;
+  Future<void> _checkFaceWithMLKit() async {
+    if (_examSubmitted || _cameraController == null || !_cameraController!.value.isInitialized) return;
+    if (_faceDetector == null) return;
     
     try {
-      // Capture frame and check (simulated detection)
-      // In real scenario, would use google_ml_kit for actual face detection
-      await _cameraController!.takePicture();
-      // print('ANTICHEAT: Face check - camera active, student present');
+      // Capture image from camera
+      final XFile imageFile = await _cameraController!.takePicture();
+      print('FACE: Analyzing image for faces (In Isolate)...');
+      
+      // Moving to background isolate to prevent UI stuttering
+      final faces = await compute(_detectFacesIsolate, imageFile.path);
+      
+      print('FACE: Detected ${faces.length} face(s)');
+      
+      if (faces.isEmpty) {
+        _noFaceCount++;
+        print('FACE: No face detected! Count: $_noFaceCount / $_maxNoFaceCount');
+        
+        setState(() => _faceDetected = false);
+        
+        // Update session with face warning
+        await SupabaseService.updateExamSessionWarning(
+          widget.examCode,
+          widget.enrollmentNumber,
+          warningType: 'face_not_detected',
+        );
+        
+        if (_noFaceCount >= _maxNoFaceCount) {
+          _noFaceCount = 0;
+          setState(() => _warningCount++);
+          
+          if (_warningCount >= 3) {
+            _showTerminationDialog();
+          } else {
+            _showWarningDialog(
+              title: 'Warning $_warningCount of 3',
+              message: 'Your face is not visible!\n\nPlease keep your face in front of the camera during the exam.',
+              icon: Icons.face_retouching_off,
+              iconColor: Colors.orange,
+              buttonText: 'I understand',
+              buttonColor: Colors.orange,
+              onContinue: () {},
+            );
+          }
+        } else {
+          // Show subtle warning
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(children: [
+                  const Icon(Icons.face_retouching_off, color: Colors.white, size: 16),
+                  const SizedBox(width: 8),
+                  Text('Face not visible! Please face the camera. ($_noFaceCount/$_maxNoFaceCount)'),
+                ]),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        }
+      } else {
+        // Face detected
+        if (!_faceDetected) {
+          print('FACE: Face detected again');
+        }
+        setState(() => _faceDetected = true);
+        _noFaceCount = 0;
+        
+        // Check if multiple faces detected (possible cheating)
+        if (faces.length > 1) {
+          print('FACE: Multiple faces detected! Count: ${faces.length}');
+          setState(() => _warningCount++);
+          
+          await SupabaseService.updateExamSessionWarning(
+            widget.examCode,
+            widget.enrollmentNumber,
+            warningType: 'multiple_faces',
+          );
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(children: [
+                  const Icon(Icons.warning, color: Colors.white, size: 16),
+                  const SizedBox(width: 8),
+                  Text('Multiple faces detected! Only you should be visible.'),
+                ]),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        }
+        
+        // Check eye open probability (looking away)
+        final face = faces.first;
+        if (face.leftEyeOpenProbability != null && face.rightEyeOpenProbability != null) {
+          final leftEye = face.leftEyeOpenProbability!;
+          final rightEye = face.rightEyeOpenProbability!;
+          
+          if (leftEye < 0.3 && rightEye < 0.3) {
+            print('FACE: Eyes closed detected');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Please keep your eyes open and face the screen!'),
+                  backgroundColor: Colors.orange,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          }
+        }
+      }
+      
+      // Clean up temp image
+      try { File(imageFile.path).deleteSync(); } catch(_) {}
+      
     } catch (e) {
-      print('ANTICHEAT: Face check warning - $e');
-      _onFaceNotDetected();
-    }
-  }
-
-  void _onFaceNotDetected() {
-    if (_examSubmitted) return;
-    setState(() => _warningCount++);
-    print('ANTICHEAT: Face not detected! Warning #$_warningCount');
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(children: [
-          Icon(Icons.warning, color: Colors.white),
-          SizedBox(width: 8),
-          Text('Warning: Please keep your face visible!'),
-        ]),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 3),
-      )
-    );
-    
-    if (_warningCount >= 3) {
-      _showTerminationDialog();
+      print('FACE: Detection error - $e');
     }
   }
 
@@ -608,48 +709,70 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
             Column(
               children: [
                 if (!_examSubmitted)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    color: Colors.red.shade50,
-                    child: Row(
-                      children: [
-                        // Camera status
-                        Icon(
-                          _cameraInitialized ? Icons.videocam : Icons.videocam_off,
-                          size: 14,
-                          color: _cameraInitialized ? Colors.green : Colors.grey,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _cameraInitialized ? 'Proctored' : 'Camera off',
-                          style: const TextStyle(fontSize: 11, color: Colors.grey),
-                        ),
-                        const Spacer(),
-                        // 3 warning dots
-                        Row(
-                          children: List.generate(3, (i) => Container(
-                            width: 10,
-                            height: 10,
-                            margin: const EdgeInsets.symmetric(horizontal: 2),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: i < _warningCount ? Colors.red : Colors.grey.shade300,
-                            ),
-                          )),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '$_warningCount/3',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: _warningCount > 0 ? Colors.red : Colors.grey,
-                            fontWeight: FontWeight.bold,
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      color: Colors.red.shade50,
+                      child: Row(
+                        children: [
+                          // Camera status
+                          Icon(
+                            _cameraInitialized ? Icons.videocam : Icons.videocam_off,
+                            size: 14,
+                            color: _cameraInitialized ? Colors.green : Colors.grey,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              _cameraInitialized ? 'Camera ON' : 'Camera OFF',
+                              style: const TextStyle(fontSize: 10, color: Colors.grey),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          // Face detection status
+                          if (_cameraInitialized)
+                            Row(children: [
+                              Icon(
+                                _faceDetected ? Icons.face : Icons.face_retouching_off,
+                                size: 14,
+                                color: _faceDetected ? Colors.green : Colors.red,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                _faceDetected ? 'Face OK' : 'No Face!',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: _faceDetected ? Colors.green : Colors.red,
+                                  fontWeight: _faceDetected ? FontWeight.normal : FontWeight.bold,
+                                ),
+                              ),
+                            ]),
+                          const Spacer(),
+                          // Warning dots
+                          Row(
+                            children: List.generate(3, (i) => Container(
+                              width: 8,
+                              height: 8,
+                              margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: i < _warningCount ? Colors.red : Colors.grey.shade300,
+                              ),
+                            )),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '$_warningCount/3',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: _warningCount > 0 ? Colors.red : Colors.grey,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
                 Expanded(
                   child: _isSubmitting 
                       ? _buildSubmittingState()
@@ -1135,5 +1258,22 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
       ),
       child: SelectionContainer.disabled(child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.w500, fontSize: 13))),
     );
+  }
+
+  // Static method to run detection in the background isolate via compute()
+  static Future<List<Face>> _detectFacesIsolate(String path) async {
+    final detector = FaceDetector(
+      options: FaceDetectorOptions(
+        enableClassification: true,
+        minFaceSize: 0.1,
+        performanceMode: FaceDetectorMode.fast,
+      ),
+    );
+    try {
+      final inputImage = InputImage.fromFilePath(path);
+      return await detector.processImage(inputImage);
+    } finally {
+      await detector.close();
+    }
   }
 }

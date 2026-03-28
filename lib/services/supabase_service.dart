@@ -513,4 +513,44 @@ class SupabaseService {
       return [];
     }
   }
+
+  // Update session warning (increment or type)
+  static Future<void> updateExamSessionWarning(String examCode, String enrollmentNumber, {required String warningType}) async {
+    try {
+      final session = await _client
+        .from('exam_sessions')
+        .select('warnings, warnings_log')
+        .eq('exam_code', examCode)
+        .eq('enrollment_number', enrollmentNumber)
+        .maybeSingle();
+      
+      int currentWarnings = 0;
+      List<dynamic> logs = [];
+      
+      if (session != null) {
+        currentWarnings = (session['warnings'] ?? 0) as int;
+        logs = List.from(session['warnings_log'] ?? []);
+      }
+      
+      logs.add({
+        'type': warningType,
+        'timestamp': DateTime.now().toUtc().toIso8601String(),
+      });
+      
+      await _client
+        .from('exam_sessions')
+        .update({
+          'warnings': currentWarnings + 1,
+          'warnings_log': logs,
+          'last_warning_at': DateTime.now().toUtc().toIso8601String(),
+          'last_warning_type': warningType,
+        })
+        .eq('exam_code', examCode)
+        .eq('enrollment_number', enrollmentNumber);
+        
+      print('SESSION_WARNING: $warningType for $enrollmentNumber');
+    } catch(e) {
+      print('SESSION: Error recording warning - $e');
+    }
+  }
 }

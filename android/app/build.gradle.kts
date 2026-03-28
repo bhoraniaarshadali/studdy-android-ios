@@ -37,6 +37,15 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    androidResources {
+       @Suppress("DEPRECATION")
+       noCompress("tflite")
+    }
+}
+
+dependencies {
+    implementation("com.google.android.gms:play-services-mlkit-face-detection:17.1.0")
 }
 
 flutter {

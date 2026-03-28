@@ -310,10 +310,36 @@ class _LiveExamMonitorScreenState extends State<LiveExamMonitorScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(session['student_name'] ?? session['enrollment_number'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                    Text('Joined ${(_formatJoinTime(session['joined_at']))}', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                    Row(
+                      children: [
+                        Text('Joined ${(_formatJoinTime(session['joined_at']))}', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                        if (session['last_warning_type'] != null) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            '• ${session['last_warning_type'].toString().replaceAll('_', ' ')}',
+                            style: TextStyle(color: Colors.red.shade400, fontSize: 10, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ],
+                    ),
                   ],
                 ),
               ),
+              if ((session['warnings'] ?? 0) > 0) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_amber, color: Colors.red, size: 12),
+                      const SizedBox(width: 2),
+                      Text('${session['warnings']}', style: const TextStyle(color: Colors.red, fontSize: 10, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(6)),
