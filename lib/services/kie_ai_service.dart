@@ -2,10 +2,11 @@ import 'dart:convert';
 import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
 import '../models/question_model.dart';
+import '../config/app_config.dart';
 
 class KieAiService {
   static const String _baseUrl = 'https://api.kie.ai/gemini/v1/models/gemini-3-flash-v1betamodels:streamGenerateContent';
-  static const String _bearerToken = '3d5375bb280114a132df1212a4d5c275';
+  static String get _apiKey => AppConfig.kieaApiKey;
 
   static Future<List<QuestionModel>> generateQuestions({
     required String content,
@@ -35,7 +36,7 @@ class KieAiService {
       final response = await http.post(
         Uri.parse(_baseUrl),
         headers: {
-          'Authorization': 'Bearer $_bearerToken',
+          'Authorization': 'Bearer $_apiKey',
           'Content-Type': 'application/json',
         },
         body: jsonEncode(requestBody),

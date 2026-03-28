@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'config/app_config.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/student/student_dashboard_screen.dart';
 import 'screens/teacher/dashboard_screen.dart';
@@ -9,9 +11,12 @@ import 'services/auth_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  await dotenv.load(fileName: '.env');
+  print('APP: Config loaded - configured: ${AppConfig.isConfigured}');
+  
   await Supabase.initialize(
-    url: 'https://odbycjunebfncpkkbbew.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kYnljanVuZWJmbmNwa2tiYmV3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxNjQyMDMsImV4cCI6MjA4OTc0MDIwM30.vbQQXjTR0qAxKsa0ca48ZaVKaPDs_qlmCowHYMkV6zc',
+    url: AppConfig.supabaseUrl,
+    anonKey: AppConfig.supabaseAnonKey,
   );
   
   FlutterError.onError = (FlutterErrorDetails details) {

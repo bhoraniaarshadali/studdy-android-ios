@@ -5,9 +5,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/paper_section_model.dart';
 import '../models/generated_question_model.dart';
 import 'pdf_extraction_service.dart';
+import '../config/app_config.dart';
 
 class PaperGeneratorService {
-  static const String _apiKey = '9c30f9d7b3eab8e83e6f5c7fbaa3cbb7';
+  static String get _apiKey => AppConfig.kieaApiKey;
   static const String _apiUrl =
       'https://api.kie.ai/gemini/v1/models/gemini-3-flash-v1betamodels:streamGenerateContent';
 
