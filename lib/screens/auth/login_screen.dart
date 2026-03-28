@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../teacher/dashboard_screen.dart';
+import 'teacher_login_screen.dart';
 import '../student/student_entry_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -39,11 +39,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       subtitle: 'Create & manage exams',
                       icon: Icons.school_rounded,
                       onTap: () {
-                        debugPrint('Login: Teacher selected');
+                        print('Login: Teacher login screen opened');
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => const TeacherDashboardScreen(),
+                            builder: (context) => const TeacherLoginScreen(),
                           ),
                         );
                       },

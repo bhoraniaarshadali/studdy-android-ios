@@ -8,6 +8,10 @@ import '../../widgets/error_widget.dart';
 import '../../widgets/loading_widget.dart';
 import 'generated_papers_screen.dart';
 import 'teacher_exams_screen.dart';
+import '../../services/teacher_auth_service.dart';
+import '../auth/teacher_login_screen.dart';
+import '../auth/login_screen.dart';
+import '../../services/auth_service.dart';
 
 class TeacherDashboardScreen extends StatefulWidget {
   const TeacherDashboardScreen({super.key});
@@ -25,7 +29,23 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _checkAuth();
     _loadExams();
+  }
+
+  void _checkAuth() {
+    if (!TeacherAuthService.isLoggedIn) {
+      print('TEACHER_AUTH: Not logged in, redirecting to login');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const TeacherLoginScreen()),
+          (route) => false,
+        );
+      });
+      return;
+    }
+    print('TEACHER_AUTH: Logged in as: ${TeacherAuthService.teacherEmail}');
   }
 
   Future<void> _loadExams() async {
@@ -90,7 +110,16 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: const Text('My Exams'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('My Exams', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text(
+              TeacherAuthService.teacherEmail,
+              style: const TextStyle(fontSize: 11, color: Colors.blueAccent),
+            ),
+          ],
+        ),
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
@@ -101,17 +130,40 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
             tooltip: 'Refresh',
           ),
           IconButton(
-            icon: const Icon(Icons.add),
+            icon: const Icon(Icons.logout),
             onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const CreateExamScreen(),
+              showDialog(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text('Sign Out?'),
+                  content: const Text('Are you sure you want to sign out?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        await TeacherAuthService.signOut();
+                        await AuthService.logout();
+                        print('TEACHER_AUTH: Logged out');
+                        if (mounted) {
+                          Navigator.pushAndRemoveUntil(
+                            context,
+                            MaterialPageRoute(builder: (_) => const LoginScreen()),
+                            (route) => false,
+                          );
+                        }
+                      },
+                      child: const Text('Sign Out', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
                 ),
               );
-              _loadExams();
             },
-            tooltip: 'Create Exam',
+            tooltip: 'Logout',
           ),
         ],
       ),

@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/cupertino.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/question_model.dart';
+import 'teacher_auth_service.dart';
 
 class SupabaseService {
   static final _client = Supabase.instance.client;
@@ -47,7 +48,9 @@ class SupabaseService {
         'duration_minutes': durationMinutes,
         'window_start': windowStart?.toUtc().toIso8601String(),
         'window_end': windowEnd?.toUtc().toIso8601String(),
+        'teacher_id': TeacherAuthService.currentTeacherId ?? 'unknown',
       });
+      print('PUBLISH: Teacher ID: ${TeacherAuthService.currentTeacherId}');
       
       debugPrint('PUBLISH: Success! Exam saved with code: $code');
       return code;
@@ -60,10 +63,14 @@ class SupabaseService {
   // Get all exams for teacher
   static Future<List<Map<String, dynamic>>> getTeacherExams() async {
     try {
-      // 1. First fetch all exams:
+      final teacherId = TeacherAuthService.currentTeacherId;
+      print('TEACHER_EXAMS: Fetching for teacher: $teacherId');
+      
+      // 1. First fetch all exams for this teacher:
       final List<dynamic> exams = await _client
         .from('exams')
-        .select('id, code, title, result_mode, results_published, created_at')
+        .select('id, code, title, result_mode, results_published, created_at, timer_mode, duration_minutes, window_start, window_end')
+        .eq('teacher_id', teacherId ?? '')
         .order('created_at', ascending: false);
       
       print('TEACHER_EXAMS: Got ${exams.length} exams');
