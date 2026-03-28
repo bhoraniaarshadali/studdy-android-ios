@@ -6,6 +6,12 @@ import 'student_response_screen.dart';
 import 'dashboard_screen.dart';
 import '../../widgets/error_widget.dart';
 import '../../widgets/loading_widget.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:screenshot/screenshot.dart';
+import 'package:share_plus/share_plus.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'dart:typed_data';
 
 class ExamDetailScreen extends StatefulWidget {
   final Map<String, dynamic> exam;
@@ -26,6 +32,10 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
   String? _errorMessage;
+  
+  final ScreenshotController _screenshotController = ScreenshotController();
+  bool _showQR = false;
+  bool _isSharingQR = false;
 
   @override
   void initState() {
@@ -285,29 +295,35 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
                 ? AppErrorWidget(message: _errorMessage!, onRetry: _loadResults)
                 : DefaultTabController(
                     length: 2,
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: _buildInfoCard(),
+                    child: NestedScrollView(
+                      headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: _buildInfoCard(),
+                          ),
                         ),
-                        const TabBar(
-                          tabs: [
-                            Tab(text: 'Leaderboard', icon: Icon(Icons.leaderboard_outlined)),
-                            Tab(text: 'Proctoring Report', icon: Icon(Icons.security_outlined)),
-                          ],
-                          labelColor: Colors.blueAccent,
-                          indicatorColor: Colors.blueAccent,
-                        ),
-                        Expanded(
-                          child: TabBarView(
-                            children: [
-                              _buildLeaderboardTab(),
-                              _buildProctoringTab(),
-                            ],
+                        SliverPersistentHeader(
+                          pinned: true,
+                          delegate: _SliverAppBarDelegate(
+                            const TabBar(
+                              tabs: [
+                                Tab(text: 'Leaderboard', icon: Icon(Icons.leaderboard_outlined)),
+                                Tab(text: 'Proctoring Report', icon: Icon(Icons.security_outlined)),
+                              ],
+                              labelColor: Colors.blueAccent,
+                              unselectedLabelColor: Colors.grey,
+                              indicatorColor: Colors.blueAccent,
+                            ),
                           ),
                         ),
                       ],
+                      body: TabBarView(
+                        children: [
+                          _buildLeaderboardTab(),
+                          _buildProctoringTab(),
+                        ],
+                      ),
                     ),
                   ),
       ),
@@ -373,6 +389,151 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
             ),
             const SizedBox(height: 16),
             _buildTimerInfoRow(),
+            
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () {
+                    setState(() => _showQR = !_showQR);
+                    print('QR_DETAIL: QR toggled: $_showQR for exam ${widget.exam['code']}');
+                  },
+                  icon: Icon(_showQR ? Icons.qr_code_2 : Icons.qr_code, size: 18),
+                  label: Text(_showQR ? 'Hide QR' : 'Show QR Code'),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.blue),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
+                ),
+              ],
+            ),
+
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              child: _showQR ? Container(
+                key: const ValueKey('qr'),
+                margin: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.shade100),
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      'Exam QR Code',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Share this with students to join',
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                    const SizedBox(height: 12),
+                    
+                    // QR Code wrapped in Screenshot widget
+                    Screenshot(
+                      controller: _screenshotController,
+                      child: Container(
+                        color: Colors.white,
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'Studdy Exam',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                                color: Colors.black,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              widget.exam['title'] ?? 'Exam',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 8),
+                            QrImageView(
+                              data: widget.exam['code'],
+                              version: QrVersions.auto,
+                              size: 180,
+                              backgroundColor: Colors.white,
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                widget.exam['code'],
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 8,
+                                  color: Colors.blue.shade800,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Scan QR or enter code in Studdy app',
+                              style: TextStyle(fontSize: 10, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 12),
+                    
+                    // Action buttons row
+                    Row(
+                      children: [
+                        // Download button
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _isSharingQR ? null : () {
+                              print('QR_DETAIL: Download button tapped');
+                              _downloadQR();
+                            },
+                            icon: const Icon(Icons.download, size: 16),
+                            label: const Text('Download'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // Share button
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _isSharingQR ? null : () {
+                              print('QR_DETAIL: Share button tapped');
+                              _shareQR();
+                            },
+                            icon: _isSharingQR
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Icon(Icons.share, size: 16),
+                            label: const Text('Share'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ) : const SizedBox.shrink(key: ValueKey('empty')),
+            ),
             if (isManual && !_resultsPublished) ...[
               const SizedBox(height: 20),
               Container(
@@ -904,6 +1065,107 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
     if (total == 0) return 'Clean';
     if (total <= 2) return 'Suspicious';
     return 'High Risk';
+  }
+
+  Future<void> _downloadQR() async {
+    try {
+      setState(() => _isSharingQR = true);
+      print('QR_DETAIL: Capturing QR for download');
+      
+      final Uint8List? imageBytes = await _screenshotController.capture();
+      if (imageBytes == null) throw Exception('Failed to capture QR');
+      
+      final directory = Directory('/storage/emulated/0/Download');
+      if (!await directory.exists()) await directory.create(recursive: true);
+      
+      final fileName = 'Studdy_QR_${widget.exam['code']}_${DateTime.now().millisecondsSinceEpoch}.png';
+      final file = File('${directory.path}/$fileName');
+      await file.writeAsBytes(imageBytes);
+      
+      print('QR_DETAIL: QR saved to: ${file.path}');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('QR saved to Downloads!', style: TextStyle(fontWeight: FontWeight.bold)),
+                Text(fileName, style: const TextStyle(fontSize: 11)),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      print('QR_DETAIL: Download ERROR - $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Download failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      setState(() => _isSharingQR = false);
+    }
+  }
+
+  Future<void> _shareQR() async {
+    try {
+      setState(() => _isSharingQR = true);
+      print('QR_DETAIL: Capturing QR for sharing');
+      
+      final Uint8List? imageBytes = await _screenshotController.capture();
+      if (imageBytes == null) throw Exception('Failed to capture QR');
+      
+      final tempDir = await getTemporaryDirectory();
+      final fileName = 'Studdy_QR_${widget.exam['code']}.png';
+      final file = File('${tempDir.path}/$fileName');
+      await file.writeAsBytes(imageBytes);
+      
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Join my exam on Studdy!\n\nExam: ${widget.exam['title'] ?? 'Exam'}\nCode: ${widget.exam['code']}\n\nScan the QR or enter code in Studdy app.',
+        subject: 'Studdy Exam Code: ${widget.exam['code']}',
+      );
+      
+      print('QR_DETAIL: QR shared successfully');
+    } catch (e) {
+      print('QR_DETAIL: Share ERROR - $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Share failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      setState(() => _isSharingQR = false);
+    }
+  }
+}
+
+class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
+  _SliverAppBarDelegate(this._tabBar);
+
+  final TabBar _tabBar;
+
+  @override
+  double get minExtent => _tabBar.preferredSize.height;
+  @override
+  double get maxExtent => _tabBar.preferredSize.height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: Colors.white, // Ensure TabBar has a background when pinned
+      child: _tabBar,
+    );
+  }
+
+  @override
+  bool shouldRebuild(_SliverAppBarDelegate oldDelegate) {
+    return false;
   }
 }
 
