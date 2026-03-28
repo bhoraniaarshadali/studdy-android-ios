@@ -12,6 +12,7 @@ import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'dart:typed_data';
+import 'live_exam_monitor_screen.dart';
 
 class ExamDetailScreen extends StatefulWidget {
   final Map<String, dynamic> exam;
@@ -201,6 +202,13 @@ class _ExamDetailScreenState extends State<ExamDetailScreen> {
         foregroundColor: Colors.black,
         elevation: 0,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.monitor_heart, color: Colors.green),
+            tooltip: 'Live Monitor',
+            onPressed: () => Navigator.push(context, MaterialPageRoute(
+              builder: (_) => LiveExamMonitorScreen(exam: widget.exam)
+            )),
+          ),
           IconButton(
             icon: const Icon(Icons.delete_outline, color: Colors.red),
             onPressed: () {
