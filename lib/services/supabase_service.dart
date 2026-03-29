@@ -553,4 +553,52 @@ class SupabaseService {
       print('SESSION: Error recording warning - $e');
     }
   }
+
+  // Update session heartbeat
+  static Future<void> updateHeartbeat(String examCode, String enrollmentNumber) async {
+    try {
+      await _client
+        .from('exam_sessions')
+        .update({
+          'last_heartbeat': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('exam_code', examCode)
+        .eq('enrollment_number', enrollmentNumber);
+    } catch(e) {
+      // Silent fail
+    }
+  }
+
+  // Save progressive answers during exam
+  static Future<void> saveProgressiveAnswer(String examCode, String enrollmentNumber, List<int?> answers, int currentIndex) async {
+    try {
+      await _client
+        .from('exam_sessions')
+        .update({
+          'current_answers': answers,
+          'last_question_index': currentIndex,
+        })
+        .eq('exam_code', examCode)
+        .eq('enrollment_number', enrollmentNumber);
+      print('PROGRESS: Saved Q${currentIndex + 1} for $enrollmentNumber');
+    } catch(e) {
+      // Silent
+    }
+  }
+
+  // Get a single session details for resume
+  static Future<Map<String, dynamic>?> getExamSession(String examCode, String enrollmentNumber) async {
+    try {
+      final response = await _client
+        .from('exam_sessions')
+        .select('*')
+        .eq('exam_code', examCode)
+        .eq('enrollment_number', enrollmentNumber)
+        .maybeSingle();
+      return response;
+    } catch(e) {
+      print('SESSION: Error fetching session - $e');
+      return null;
+    }
+  }
 }

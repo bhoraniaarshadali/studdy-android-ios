@@ -73,15 +73,23 @@ class PaperGeneratorService {
 
       final data = json.decode(response.body);
 
+      // Check for API errors first (Code 402 = Insufficient Credits)
+      if (data['code'] != null && data['code'] == 402) {
+        print('PAPER_GEN: Insufficient credits - ${data['msg']}');
+        throw Exception('AI service credits exhausted. Please contact administrator.');
+      }
+
+      if (data['candidates'] == null) {
+        print('PAPER_GEN: Unexpected response - ${response.body.substring(0, response.body.length > 200 ? 200 : response.body.length)}');
+        throw Exception('AI service unavailable. Please try again.');
+      }
+
       // Robust parsing
       String rawText = '';
       try {
         final candidates = data['candidates'];
-        if (candidates == null || candidates.isEmpty) {
+        if (candidates.isEmpty) {
           print('PAPER_GEN: No candidates in response');
-          print(
-            'PAPER_GEN: Full response: ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}',
-          );
           throw Exception('No candidates in API response');
         }
         final content = candidates[0]['content'];

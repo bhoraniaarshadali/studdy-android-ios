@@ -131,7 +131,12 @@ class _LiveExamMonitorScreenState extends State<LiveExamMonitorScreen> {
                 content: Row(children: [
                   const Icon(Icons.person_add, color: Colors.white, size: 18),
                   const SizedBox(width: 8),
-                  Text('${newSession['student_name'] ?? newSession['enrollment_number']} joined the exam!'),
+                  Expanded(
+                    child: Text(
+                      '${newSession['student_name'] ?? newSession['enrollment_number']} joined the exam!',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ]),
                 backgroundColor: Colors.blue,
                 duration: const Duration(seconds: 3),
@@ -167,7 +172,12 @@ class _LiveExamMonitorScreenState extends State<LiveExamMonitorScreen> {
                   content: Row(children: [
                     const Icon(Icons.task_alt, color: Colors.white, size: 18),
                     const SizedBox(width: 8),
-                    Text('${updated['student_name'] ?? updated['enrollment_number']} submitted!'),
+                    Expanded(
+                      child: Text(
+                        '${updated['student_name'] ?? updated['enrollment_number']} submitted!',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ]),
                   backgroundColor: Colors.green,
                   duration: const Duration(seconds: 3),
@@ -297,27 +307,64 @@ class _LiveExamMonitorScreenState extends State<LiveExamMonitorScreen> {
 
     return Column(
       children: activeSessions.map((session) {
+        final lastHeartbeatStr = session['last_heartbeat'];
+        bool isRecentlyActive = false;
+        if (lastHeartbeatStr != null) {
+          try {
+            final lastHeartbeat = DateTime.parse(lastHeartbeatStr).toUtc();
+            final now = DateTime.now().toUtc();
+            isRecentlyActive = now.difference(lastHeartbeat).inSeconds < 30;
+          } catch (e) {
+            isRecentlyActive = false;
+          }
+        }
+
         return Container(
           margin: const EdgeInsets.only(bottom: 8),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
           child: Row(
             children: [
-              _PulsingDot(),
+              _PulsingDot(color: isRecentlyActive ? Colors.green : Colors.grey),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(session['student_name'] ?? session['enrollment_number'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text(
+                      session['student_name'] ?? session['enrollment_number'],
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
                     Row(
                       children: [
                         Text('Joined ${(_formatJoinTime(session['joined_at']))}', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: (isRecentlyActive ? Colors.green : Colors.grey).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            isRecentlyActive ? 'Live' : 'Offline?',
+                            style: TextStyle(
+                              color: isRecentlyActive ? Colors.green : Colors.grey,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
                         if (session['last_warning_type'] != null) ...[
                           const SizedBox(width: 8),
-                          Text(
-                            '• ${session['last_warning_type'].toString().replaceAll('_', ' ')}',
-                            style: TextStyle(color: Colors.red.shade400, fontSize: 10, fontWeight: FontWeight.bold),
+                          Flexible(
+                            child: Text(
+                              '• ${session['last_warning_type'].toString().replaceAll('_', ' ')}',
+                              style: TextStyle(color: Colors.red.shade400, fontSize: 10, fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
                           ),
                         ],
                       ],
@@ -415,6 +462,9 @@ class _LiveExamMonitorScreenState extends State<LiveExamMonitorScreen> {
 }
 
 class _PulsingDot extends StatefulWidget {
+  final Color color;
+  const _PulsingDot({this.color = Colors.green});
+
   @override
   State<_PulsingDot> createState() => _PulsingDotState();
 }
@@ -444,11 +494,11 @@ class _PulsingDotState extends State<_PulsingDot> with SingleTickerProviderState
         width: 10,
         height: 10,
         decoration: BoxDecoration(
-          color: Colors.green.withOpacity(_animation.value),
+          color: widget.color.withOpacity(_animation.value),
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.green.withOpacity(_animation.value * 0.5),
+              color: widget.color.withOpacity(_animation.value * 0.5),
               blurRadius: 4,
               spreadRadius: 2,
             ),

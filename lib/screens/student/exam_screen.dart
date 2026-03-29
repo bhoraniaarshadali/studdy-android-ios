@@ -10,6 +10,7 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import '../../models/question_model.dart';
 import '../../services/supabase_service.dart';
 import '../auth/login_screen.dart';
+import 'student_dashboard_screen.dart';
 
 class StudentExamScreen extends StatefulWidget {
   final List<QuestionModel> questions;
@@ -54,6 +55,7 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
   int _noFaceCount = 0;
   static const int _maxNoFaceCount = 3;
   Timer? _faceCheckTimer;
+  Timer? _heartbeatTimer;
   int _appSwitchCount = 0;
 
   @override
@@ -98,14 +100,54 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
     
     print('TIMER: Started - mode: $_timerMode, seconds: $_remainingSeconds');
 
-    // Create exam session when student starts exam
+    // Handle exam session creation or restoration
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await SupabaseService.createExamSession(
+      // 1. Check for existing session (Resume support)
+      final existingSession = await SupabaseService.getExamSession(
         widget.examCode,
         widget.enrollmentNumber,
-        widget.enrollmentNumber, // name fallback
       );
-      print('EXAM: Session created for ${widget.enrollmentNumber}');
+
+      if (existingSession != null && existingSession['current_answers'] != null) {
+        final answers = List<int?>.from(existingSession['current_answers']);
+        final lastIdx = (existingSession['last_question_index'] ?? 0) as int;
+        
+        if (mounted) {
+          setState(() {
+            _selectedAnswers = answers;
+            _currentQuestion = lastIdx;
+
+            // BUG 1 FIX: Always ensure _selectedAnswers length matches widget.questions.length
+            if (_selectedAnswers.length != widget.questions.length) {
+              final restored = List<int?>.from(_selectedAnswers);
+              _selectedAnswers = List<int?>.filled(widget.questions.length, null);
+              for (int i = 0; i < restored.length && i < _selectedAnswers.length; i++) {
+                _selectedAnswers[i] = restored[i];
+              }
+            }
+          });
+        }
+        print('RESUME: Restored ${_selectedAnswers.where((a) => a != null).length} answers from session at Q${lastIdx + 1}');
+        print('RESUME: _selectedAnswers fixed to length ${_selectedAnswers.length}');
+      } else {
+        // 2. Create fresh session if none exists
+        await SupabaseService.createExamSession(
+          widget.examCode,
+          widget.enrollmentNumber,
+          widget.enrollmentNumber, // name fallback
+        );
+        print('EXAM: Fresh session created for ${widget.enrollmentNumber}');
+      }
+
+      // Start Heartbeat Timer
+      _heartbeatTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+        if (!_examSubmitted) {
+          SupabaseService.updateHeartbeat(widget.examCode, widget.enrollmentNumber);
+          print('HEARTBEAT: sent');
+        } else {
+          timer.cancel();
+        }
+      });
     });
   }
 
@@ -116,6 +158,7 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
     WakelockPlus.disable();
     _countdownTimer?.cancel();
     _faceCheckTimer?.cancel();
+    _heartbeatTimer?.cancel();
     _cameraController?.dispose();
     _faceDetector?.close();
     WidgetsBinding.instance.removeObserver(this);
@@ -233,10 +276,19 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
     try {
       // Capture image from camera
       final XFile imageFile = await _cameraController!.takePicture();
-      print('FACE: Analyzing image for faces (In Isolate)...');
+      print('FACE: Analyzing image for faces...');
       
-      // Moving to background isolate to prevent UI stuttering
-      final faces = await compute(_detectFacesIsolate, imageFile.path);
+      final inputImage = InputImage.fromFilePath(imageFile.path);
+      List<Face> faces = [];
+      try {
+        faces = await _faceDetector!.processImage(inputImage);
+      } catch (e) {
+        if (e.toString().contains('BackgroundIsolateBinaryMessenger')) {
+          print('FACE: Isolate error - skipping this check');
+          return;
+        }
+        rethrow;
+      }
       
       print('FACE: Detected ${faces.length} face(s)');
       
@@ -572,12 +624,14 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
       debugPrint('EXAM: Submitted, score: $score / ${widget.questions.length}');
       debugPrint('RESULT: Score: $score/${widget.questions.length} = $percentage%');
       
-      final isPublished = await SupabaseService.checkResultsPublished(widget.examCode);
+      final exam = await SupabaseService.getExamDetails(widget.examCode);
+      final isPublished = exam['results_published'] as bool? ?? false;
+      final isInstant = exam['result_mode'] == 'instant';
       
       setState(() {
         _score = score;
         _examSubmitted = true;
-        _resultsPublished = isPublished;
+        _resultsPublished = isPublished || isInstant;
       });
 
       // Update session to submitted
@@ -603,10 +657,18 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
   Future<void> _checkResults() async {
     setState(() => _isCheckingResults = true);
     try {
-      final isPublished = await SupabaseService.checkResultsPublished(widget.examCode);
-      debugPrint('CHECK: Results published: $isPublished');
-      if (isPublished) {
+      // Fetch fresh exam details to check result_mode and publishing status
+      final exam = await SupabaseService.getExamDetails(widget.examCode);
+      final isPublished = exam['results_published'] as bool? ?? false;
+      final isInstant = exam['result_mode'] == 'instant';
+      
+      debugPrint('CHECK: Results published: $isPublished, Mode: ${exam['result_mode']}');
+      
+      if (isPublished || isInstant) {
         setState(() => _resultsPublished = true);
+        if (isInstant && !isPublished) {
+          print('EXAM: Showing results via Instant Mode');
+        }
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -947,6 +1009,13 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
                 return GestureDetector(
                   onTap: () {
                     setState(() => _selectedAnswers[_currentQuestion] = index);
+                    // Persistent Answer Saving
+                    SupabaseService.saveProgressiveAnswer(
+                      widget.examCode,
+                      widget.enrollmentNumber,
+                      _selectedAnswers,
+                      _currentQuestion,
+                    );
                     debugPrint('EXAM: Q${_currentQuestion + 1} answered: $index');
                   },
                   child: Container(
@@ -1092,11 +1161,15 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
                 onPressed: () {
                   Navigator.pushAndRemoveUntil(
                     context,
-                    MaterialPageRoute(builder: (context) => const LoginScreen()),
+                    MaterialPageRoute(
+                      builder: (context) => StudentDashboardScreen(
+                        enrollmentNumber: widget.enrollmentNumber,
+                      ),
+                    ),
                     (route) => false,
                   );
                 },
-                child: const Text('Back to Home', style: TextStyle(color: Colors.grey)),
+                child: const Text('Back to Dashboard', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
               ),
             ],
           ),
@@ -1186,7 +1259,11 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
               onPressed: () {
                 Navigator.pushAndRemoveUntil(
                   context,
-                  MaterialPageRoute(builder: (context) => const LoginScreen()),
+                  MaterialPageRoute(
+                    builder: (context) => StudentDashboardScreen(
+                      enrollmentNumber: widget.enrollmentNumber,
+                    ),
+                  ),
                   (route) => false,
                 );
               },
@@ -1196,7 +1273,7 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: const Text('Back to Home', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: const Text('Back to Dashboard', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
           const SizedBox(height: 40),
@@ -1260,20 +1337,4 @@ class _StudentExamScreenState extends State<StudentExamScreen> with WidgetsBindi
     );
   }
 
-  // Static method to run detection in the background isolate via compute()
-  static Future<List<Face>> _detectFacesIsolate(String path) async {
-    final detector = FaceDetector(
-      options: FaceDetectorOptions(
-        enableClassification: true,
-        minFaceSize: 0.1,
-        performanceMode: FaceDetectorMode.fast,
-      ),
-    );
-    try {
-      final inputImage = InputImage.fromFilePath(path);
-      return await detector.processImage(inputImage);
-    } finally {
-      await detector.close();
-    }
-  }
 }

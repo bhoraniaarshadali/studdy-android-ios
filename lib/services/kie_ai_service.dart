@@ -42,11 +42,19 @@ class KieAiService {
         body: jsonEncode(requestBody),
       );
 
-      debugPrint('KieAI: Response status: ${response.statusCode}');
-      debugPrint('KieAI: Raw response: ${response.body}');
+      final Map<String, dynamic> data = jsonDecode(response.body);
+
+      // Check for API errors first (Code 402 = Insufficient Credits)
+      if (data['code'] != null && data['code'] == 402) {
+        print('KieAI: Insufficient credits - ${data['msg']}');
+        throw Exception('AI service credits exhausted. Please contact administrator.');
+      }
 
       if (response.statusCode == 200) {
-        final Map<String, dynamic> data = jsonDecode(response.body);
+        if (data['candidates'] == null) {
+          print('KieAI: Unexpected response - ${response.body.substring(0, response.body.length > 200 ? 200 : response.body.length)}');
+          throw Exception('AI service unavailable. Please try again.');
+        }
         String textResponse = data['candidates'][0]['content']['parts'][0]['text'];
         debugPrint('KieAI: Extracted text: $textResponse');
 
